@@ -1,0 +1,106 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "png to nice Debug executable 'NICE2'",
+            "env": {"RUST_BACKTRACE":"1"},
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=NICE2",
+                    "--package=NICE2"
+                ],
+                "filter": {
+                    "name": "NICE2",
+                    "kind": "bin"
+                }
+            },
+            "args": [".\\papa.png",".\\papa.nice"],
+            "cwd": "C:\\Users\\wouter\\Downloads\\qoi-master\\images"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "nice to png Debug executable 'NICE2'",
+            "env": {"RUST_BACKTRACE":"1"},
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=NICE2",
+                    "--package=NICE2"
+                ],
+                "filter": {
+                    "name": "NICE2",
+                    "kind": "bin"
+                }
+            },
+            "args": [".\\papa.nice",".\\papa2.png"],
+            "cwd": "C:\\Users\\wouter\\Downloads\\qoi-master\\images"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "png to nice2 release and launch encode",
+            "env": {"RUSTFLAGS":"-C target-cpu=native"},
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=NICE2",
+                    "--package=NICE2",
+                    "--release"
+                ],
+                "filter": {
+                    "name": "NICE2",
+                    "kind": "bin"
+                }
+            },
+            "args": [".\\papa.png",".\\papa.nice"],
+            "cwd": "C:\\Users\\wouter\\Downloads\\qoi-master\\images"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "main png to nice release and launch encode",
+            "env": {"RUSTFLAGS":"-C target-cpu=native"},
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=NICE2",
+                    "--package=NICE2",
+                    "--release"
+                ],
+                "filter": {
+                    "name": "NICE2",
+                    "kind": "bin"
+                }
+            },
+            "args": [".\\lua_qoi.png",".\\lua_qoi.nice"],
+            "cwd": "C:\\Users\\wouter\\Downloads\\qoi-master\\images"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "nice to png release and launch decode",
+            "env": {"RUSTFLAGS":"-C target-cpu=native"},
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=NICE2",
+                    "--package=NICE2",
+                    "--release"
+                ],
+                "filter": {
+                    "name": "NICE2",
+                    "kind": "bin"
+                }
+            },
+            "args": [".\\papa.nice",".\\papa2.png"],
+            "cwd": "C:\\Users\\wouter\\Downloads\\qoi-master\\images"
+        }
+    ]
+}
