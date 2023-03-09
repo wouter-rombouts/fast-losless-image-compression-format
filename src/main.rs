@@ -56,21 +56,26 @@ fn main()
         code::encode(bytes, code::Image{width:info.width, height:info.height, channels:channels},channels, &mut my_output).expect("Could not encode Nice");
         
         println!("{}", now.elapsed().as_millis());
-        println!("bytes length: {}", bytes.len());
         println!("read png file: {}", a_file_from);
-        
+        /*for i in 35999992..36000013
+        {
+            println!("i: {}", my_output[i]);
+        }*/
         my_file.write_all(&(my_output)[..]).expect("could not write");
     }
     else {
         if str::ends_with( a_file_from, NICE_FILE_EXT )
-        {
-            let mut file_reader = io::BufReader::new( fs::File::open(a_file_from).expect("Error opening input file") );
+        {  let before_nice = Instant::now();
+            //let mut file_reader = io::BufReader::new( fs::File::open(a_file_from).expect("Error opening input file") );
             //TODO use enum for channels, make optional
-            let mut dump :Vec<u8> = Vec::new();
-            fs::File::open(DUMP_FILE).unwrap().read_to_end( &mut dump ).ok();
-
+            //let mut dump :Vec<u8> = Vec::new();
+            //fs::File::open(DUMP_FILE).unwrap().read_to_end( &mut dump ).ok();
+            let mut input :Vec<u8> = Vec::new();
+            fs::File::open(a_file_from).unwrap().read_to_end( &mut input ).ok();
+            
             //TODO decode from memory
-            let imagebytes = code::decode( file_reader, 3).expect("Could not decode Nice");
+            let imagebytes = code::decode(&input[..] , 3).expect("Could not decode Nice");
+            println!("{}", before_nice.elapsed().as_millis());
             //println!("read nice file width: {}", width);
             //println!("read nice file height: {}", height);
             //println!("read nice file channels: {}", channels);
@@ -83,10 +88,14 @@ fn main()
             let now = Instant::now();
             let mut encoder = png::Encoder::new(w, imagebytes.image.width, imagebytes.image.height);
             encoder.set_color(png::ColorType::Rgb);
-            encoder.set_depth(png::BitDepth::Eight);
-            //encoder.set_trns(vec!(0xFFu8, 0xFFu8, 0xFFu8, 0xFFu8));
-            //encoder.set_source_gamma(png::ScaledFloat::new(1.0 / 2.2));
-            /*let source_chromaticities = png::SourceChromaticities::new(     // Using unscaled instantiation here
+            //encoder.set_depth(png::BitDepth::One);
+            //encoder.set_compression(png::Compression::Best);
+            //encoder.set_filter(png::FilterType::Paeth);
+            //encoder.set_adaptive_filter(png::AdaptiveFilterType::Adaptive);
+
+            /*encoder.set_trns(vec!(0xFFu8, 0xFFu8, 0xFFu8, 0xFFu8));
+            encoder.set_source_gamma(png::ScaledFloat::new(1.0 / 2.2));
+            let source_chromaticities = png::SourceChromaticities::new(     // Using unscaled instantiation here
                 (0.31270, 0.32900),
                 (0.64000, 0.33000),
                 (0.30000, 0.60000),
