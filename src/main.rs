@@ -1,3 +1,4 @@
+//#![feature(int_log)]
 use std::env;
 
 use std::io::prelude::*;
@@ -5,6 +6,9 @@ use std::fs;
 use std::io;
 use std::time::Instant;
 mod code;
+pub mod hfe;
+pub mod bitwriter;
+pub mod bitreader;
 
 fn main()
 {
@@ -74,8 +78,19 @@ fn main()
             fs::File::open(a_file_from).unwrap().read_to_end( &mut input ).ok();
             
             //TODO decode from memory
-            let imagebytes = code::decode(&input[..] , 3).expect("Could not decode Nice");
-            println!("{}", before_nice.elapsed().as_millis());
+            let imagebytes = code::decode(&mut & input[..] , 3).expect("Could not decode Nice");
+            
+            println!("length: {}", imagebytes.bytes.len());
+            println!("nice elapsed in: {}", before_nice.elapsed().as_millis());
+
+            /*for (i,dump_byte) in fs::File::open("dump.bin").unwrap().bytes().enumerate()
+            {
+                let dump_byte=dump_byte.unwrap();
+                if imagebytes.bytes[i]!=dump_byte
+                {
+                    panic!("position {} has value {}, expected {}",i,imagebytes.bytes[i],dump_byte);
+                }
+            }*/
             //println!("read nice file width: {}", width);
             //println!("read nice file height: {}", height);
             //println!("read nice file channels: {}", channels);

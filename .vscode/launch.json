@@ -85,7 +85,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "nice to png release and launch decode",
+            "name": "nice2 to png release and launch decode",
             "env": {"RUSTFLAGS":"-C target-cpu=native"},
             "cargo": {
                 "args": [
