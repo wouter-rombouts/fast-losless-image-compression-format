@@ -135,7 +135,7 @@ pub fn decode<R : io::Read>( image_reader : &mut R,
         let mut run_length: usize = 1;
         let mut curr_runcount: u8 = 0;
         //TODO: read more bits
-        output_vec.extend_from_slice(&bitreader.read_bits3bytes()?);
+        output_vec.extend_from_slice(&bitreader.read_bits3bytes()?.to_be_bytes()[1..=3]);
 
 
         //get run length

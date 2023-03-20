@@ -13,23 +13,12 @@ impl<R: io::Read> Bitreader<'_,R>
     (
             &mut self
     )
-    -> std::io::Result<[u8;3]>
+    -> std::io::Result<u32>
     {
-        //if we need to read more than what is available in the cache
-        /*if self.bit_offset > 8
-        {*/
-
         let mut buffer =[0,0,0];
         self.reader.read_exact(&mut buffer)?;
-        self.cache= u32::from_be_bytes([0,buffer[0],buffer[1],buffer[2]])  + (self.cache<<24);
-        //self.bit_offset-=24;
-
-        //}
-        //move offset, but don't change the cache
-        let ret  =((self.cache<<(self.bit_offset-24))>>8).to_be_bytes();
-        //self.bit_offset+=24;
-        //println!("output: {}",(self.bit_offset));
-        Ok([ret[1],ret[2],ret[3]])
+        self.cache= (self.cache<<24) + ((buffer[0] as u32) <<16) + ((buffer[1] as u32)<<8)+(buffer[2] as u32 ) ;
+        Ok((self.cache<<(self.bit_offset-24))>>8)
     }
     //TODO hardcode amount of bits?
     pub fn read_bitsu8
@@ -40,7 +29,7 @@ impl<R: io::Read> Bitreader<'_,R>
     -> std::io::Result<u8>
     {
         //if we need to read more than what is available in the cache
-        if amount_of_bits > 32-self.bit_offset
+        if amount_of_bits > 32 - self.bit_offset
         {
 
             let mut buffer =[0];
@@ -79,10 +68,10 @@ mod tests {
         let testreader = [252,215,250,249,248,247,246,245,244,243,242];
         let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0};
         let test = myreader.read_bits3bytes().unwrap();
-        debug_assert_eq!(test,[252,215,250]);
+        debug_assert_eq!(test.to_be_bytes()[1..=3],[252,215,250]);
         let test = myreader.read_bits3bytes().unwrap();
-        debug_assert_eq!(test,[249,248,247]);
+        debug_assert_eq!(test.to_be_bytes()[1..=3],[249,248,247]);
         let test = myreader.read_bits3bytes().unwrap();
-        debug_assert_eq!(test,[246,245,244]);
+        debug_assert_eq!(test.to_be_bytes()[1..=3],[246,245,244]);
     }
 }

@@ -79,7 +79,7 @@ fn main()
             let before_nice = Instant::now();
             let mut output_vec : Vec<u8> = Vec::new();
             //TODO decode from memory
-            let image = code::decode(&mut & input[..] , 3,&mut output_vec).expect("Could not decode Nice");
+            let image = code::decode( &mut & input[..] , 3,&mut output_vec).expect("Could not decode Nice");
             
             //println!("length: {}", imagebytes.bytes.len());
             println!("nice elapsed in: {}", before_nice.elapsed().as_millis());
