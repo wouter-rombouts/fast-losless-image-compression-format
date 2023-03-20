@@ -69,18 +69,19 @@ fn main()
     }
     else {
         if str::ends_with( a_file_from, NICE_FILE_EXT )
-        {  let before_nice = Instant::now();
+        {  
             //let mut file_reader = io::BufReader::new( fs::File::open(a_file_from).expect("Error opening input file") );
             //TODO use enum for channels, make optional
             //let mut dump :Vec<u8> = Vec::new();
             //fs::File::open(DUMP_FILE).unwrap().read_to_end( &mut dump ).ok();
             let mut input :Vec<u8> = Vec::new();
             fs::File::open(a_file_from).unwrap().read_to_end( &mut input ).ok();
-            
+            let before_nice = Instant::now();
+            let mut output_vec : Vec<u8> = Vec::new();
             //TODO decode from memory
-            let imagebytes = code::decode(&mut & input[..] , 3).expect("Could not decode Nice");
+            let image = code::decode(&mut & input[..] , 3,&mut output_vec).expect("Could not decode Nice");
             
-            println!("length: {}", imagebytes.bytes.len());
+            //println!("length: {}", imagebytes.bytes.len());
             println!("nice elapsed in: {}", before_nice.elapsed().as_millis());
 
             /*for (i,dump_byte) in fs::File::open("dump.bin").unwrap().bytes().enumerate()
@@ -101,7 +102,7 @@ fn main()
             let file = fs::File::create(a_file_to).unwrap();
             let ref mut w = io::BufWriter::new(file);
             let now = Instant::now();
-            let mut encoder = png::Encoder::new(w, imagebytes.image.width, imagebytes.image.height);
+            let mut encoder = png::Encoder::new(w, image.width, image.height);
             encoder.set_color(png::ColorType::Rgb);
             //encoder.set_depth(png::BitDepth::One);
             //encoder.set_compression(png::Compression::Best);
@@ -118,7 +119,7 @@ fn main()
             );
             encoder.set_source_chromaticities(source_chromaticities);*/
             let mut writer = encoder.write_header().unwrap();
-            writer.write_image_data(&imagebytes.bytes).unwrap();
+            writer.write_image_data(&output_vec[..]).unwrap();
             
             println!("png{}", now.elapsed().as_millis());
         }

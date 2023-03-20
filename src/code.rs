@@ -19,14 +19,8 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
                               output_writer : &mut W )
          -> Result< (), io::Error >
 {
-    /*current position of the input image.*/
-    //let mut pos = 0;
-    //previous pixel
-    //let mut prev_pixel;
-    //size of the image in bytes
-    //let mut buffer = Vec::<u8>::with_capacity(image_size);
     //write file header
-    let now = Instant::now();
+    //let now = Instant::now();
     //bit_writer
 
     let channels = image_header.channels as usize;
@@ -34,17 +28,17 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
     //write format header
     output_writer.write_all(NICE)?;
     //write width
-    output_writer.write_all( &image_header.width.to_be_bytes() )?;
+    output_writer.write_all( &[image_header.width.to_be_bytes(),image_header.height.to_be_bytes()].concat() )?;
     //write height
-    output_writer.write_all( &image_header.height.to_be_bytes() )?;
+    //output_writer.write_all( & )?;
     //write channels outputted
     output_writer.write_all( &[channels_out] )?;
     
+    let image_size = image_header.height as usize * image_header.width as usize * channels;
     let mut bitwriter = Bitwriter{ writer : output_writer,
         bit_offset : 0,
         cache : 0
      };
-    let image_size = image_header.height as usize * image_header.width as usize * channels;
     
     
     //main loop
@@ -77,8 +71,8 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
 
             loop
             {
-               bitwriter.write_bits( 2, PREFIX_RUN )?;
-               bitwriter.write_bits( 4, (run_count & 0b0000_1111) as u8 )?;
+               bitwriter.write_bits( 6, (PREFIX_RUN<<4)+((run_count & 0b0000_1111) as u8 ) )?;
+               //bitwriter.write_bits( 4, (run_count & 0b0000_1111) as u8 )?;
                run_count = run_count >> 4;
 
                if run_count == 0
@@ -94,8 +88,9 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
     }
     //not used, but to make the dceoder dosen't crash at the end
     bitwriter.write_bits( 8, 255 )?;
-    println!("{}", now.elapsed().as_millis());
-    //output_writer.write_all(&buffer)?;
+    bitwriter.write_bits( 8, 255 )?;
+    bitwriter.write_bits( 8, 255 )?;
+    //println!("{}", now.elapsed().as_millis());
     Ok(())
 }
 
@@ -107,8 +102,10 @@ pub struct ImageBytes
 }
 //read from file or ...
 pub fn decode<R : io::Read>( image_reader : &mut R,
-                             channels_out : u8 )
-                                         -> std::io::Result< ImageBytes >
+                             channels_out : u8,
+                             output_vec : &mut Vec<u8>
+                             )
+                                         -> std::io::Result< Image >
 {
     let now = Instant::now();
     image_reader.read( &mut [0; 4] )?;
@@ -128,53 +125,50 @@ pub fn decode<R : io::Read>( image_reader : &mut R,
     let image_size  =width as usize * height as usize * channels;
     let mut position =0;
     println!("image_size:{}", image_size);
-    let mut output_vec : Vec<u8> = Vec::with_capacity(image_size);
-    let mut prefix_2bits :u8;
-    let mut bitreader = Bitreader{reader:image_reader,bit_offset:16,cache:0};
-    prefix_2bits=bitreader.read_bits(2)?;
-    while position<image_size
+    *output_vec=Vec::with_capacity(image_size);
+    let mut bitreader = Bitreader{reader:image_reader,bit_offset:32,cache:0};
+    let mut prefix_2bits :u8=bitreader.read_bitsu8(2)?;
+    while position < image_size
     {
         //if prefix_2bits ==
-        output_vec.push(bitreader.read_bits(8)?);
-        output_vec.push(bitreader.read_bits(8)?);
-        output_vec.push(bitreader.read_bits(8)?);
+
+        let mut run_length: usize = 1;
+        let mut curr_runcount: u8 = 0;
+        //TODO: read more bits
+        output_vec.extend_from_slice(&bitreader.read_bits3bytes()?);
 
 
         //get run length
-        prefix_2bits=bitreader.read_bits(2)?;
-        if prefix_2bits == PREFIX_RUN 
-        {   let mut run_length: usize = 1;
-            let mut curr_runcount: u8 = 0;
-            loop
+        prefix_2bits=bitreader.read_bitsu8(2)?;
+        
+        loop 
+        {
+            if prefix_2bits != PREFIX_RUN
             {
-                run_length += ( bitreader.read_bits(4)? as usize ) << curr_runcount;
-                prefix_2bits = bitreader.read_bits(2)?;
-
-                curr_runcount += 4;
-                if prefix_2bits != PREFIX_RUN 
+                if curr_runcount >0
                 {
-                    break;
-                }
-            }
-            for _ in 0..run_length
-            {
-                output_vec.push(*output_vec.get(position).unwrap());
-                output_vec.push(*output_vec.get(position+1).unwrap());
-                output_vec.push(*output_vec.get(position+2).unwrap());
+                    for _ in 0..run_length
+                    { 
+                        output_vec.extend_from_slice(&[output_vec[position],output_vec[position+1],output_vec[position+2]]);
+                    }
+        
+                    position+=channels*run_length;
+               }
+               break;
             }
 
-            position+=channels*run_length;
+            run_length += ( bitreader.read_bitsu8(4)? as usize ) << curr_runcount;
+            prefix_2bits = bitreader.read_bitsu8(2)?;
+            curr_runcount += 4;
 
         }
-
-
-
+        
         position+=channels;
     }
     //bitreader.read_bits(8)?;
     println!("{}", now.elapsed().as_millis());
-    Ok( ImageBytes{image : Image { width,
+    Ok(  Image { width,
                 height,
                 channels : channels as u8,
-              },bytes : output_vec} )
+              } )
 }
