@@ -29,13 +29,13 @@ impl<R: io::Read> Bitreader<'_,R>
     -> std::io::Result<u8>
     {
         //if we need to read more than what is available in the cache
+        
         if amount_of_bits > 32 - self.bit_offset
         {
 
             let mut buffer =[0];
             self.reader.read_exact(&mut buffer)?;
             self.cache= buffer[0] as u32  + (self.cache<<8);
-            
             self.bit_offset-=8;
 
         }

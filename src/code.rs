@@ -33,24 +33,24 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
     //output_writer.write_all( & )?;
     //write channels outputted
     output_writer.write_all( &[channels_out] )?;
-    
+    let width=image_header.width as usize;
     let image_size = image_header.height as usize * image_header.width as usize * channels;
     let mut bitwriter = Bitwriter{ writer : output_writer,
         bit_offset : 0,
         cache : 0
      };
-    
-    
+    //generate lookup table for 16 backref
+    /*let lookup_16 = [channels,channels+width*channels,width*channels,width*channels-channels,
+                     2*channels,2*channels+width*channels,2*channels+width*channels*2,channels+width*channels*2,width*channels*2,width*channels*2-channels,width*channels*2-2*channels,
+                     3*channels,3*channels+width*channels,3*channels+width*channels*2,3*channels+width*channels*3,2*channels+width*channels*3];*/
     //main loop
     while position<image_size
     {
 
         let mut run_pos=position;
         
-        bitwriter.write_bits( 2,PREFIX_RGB )?;
-        bitwriter.write_bits( 8,input_bytes[position] )?;
-        bitwriter.write_bits( 8,input_bytes[position+1] )?;
-        bitwriter.write_bits( 8,input_bytes[position+2] )?;
+        bitwriter.write_bits_u8( 2,PREFIX_RGB )?;
+        bitwriter.write_24bits( ((input_bytes[position] as u32) <<16) + ((input_bytes[position+1] as u32)<<8)+(input_bytes[position+2] as u32 ) )?;
         
         loop 
         {
@@ -71,7 +71,7 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
 
             loop
             {
-               bitwriter.write_bits( 6, (PREFIX_RUN<<4)+((run_count & 0b0000_1111) as u8 ) )?;
+               bitwriter.write_bits_u8( 6, (PREFIX_RUN<<4)+((run_count & 0b0000_1111) as u8 ) )?;
                //bitwriter.write_bits( 4, (run_count & 0b0000_1111) as u8 )?;
                run_count = run_count >> 4;
 
@@ -87,9 +87,9 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
 
     }
     //not used, but to make the dceoder dosen't crash at the end
-    bitwriter.write_bits( 8, 255 )?;
-    bitwriter.write_bits( 8, 255 )?;
-    bitwriter.write_bits( 8, 255 )?;
+    bitwriter.write_bits_u8( 8, 255 )?;
+    //bitwriter.write_bits_u8( 8, 255 )?;
+    //bitwriter.write_bits_u8( 8, 255 )?;
     //println!("{}", now.elapsed().as_millis());
     Ok(())
 }
