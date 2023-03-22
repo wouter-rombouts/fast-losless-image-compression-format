@@ -3,6 +3,9 @@ use std::{*, time::Instant};
 
 use crate::{bitwriter::Bitwriter, bitreader::Bitreader};
 pub(crate) const PREFIX_RUN: u8 = 0b00;
+pub(crate) const PREFIX_RED_RUN: u8 = 0b0000;
+pub(crate) const PREFIX_GREEN_RUN: u8 = 0b0001;
+pub(crate) const PREFIX_BLUE_RUN: u8 = 0b0010;
 pub(crate) const PREFIX_RGB: u8 = 0b01;
 pub struct Image
 {
@@ -44,46 +47,127 @@ pub fn encode<W : io::Write>(   input_bytes : & [u8],
                      2*channels,2*channels+width*channels,2*channels+width*channels*2,channels+width*channels*2,width*channels*2,width*channels*2-channels,width*channels*2-2*channels,
                      3*channels,3*channels+width*channels,3*channels+width*channels*2,3*channels+width*channels*3,2*channels+width*channels*3];*/
     //main loop
+    let mut run_count_red=1;
+    let mut run_count_green=1;
+    let mut run_count_blue=1;
     while position<image_size
     {
 
-        let mut run_pos=position;
-        
-        bitwriter.write_bits_u8( 2,PREFIX_RGB )?;
-        bitwriter.write_24bits( ((input_bytes[position] as u32) <<16) + ((input_bytes[position+1] as u32)<<8)+(input_bytes[position+2] as u32 ) )?;
-        
-        loop 
-        {
-            run_pos+=channels;
 
-            if run_pos>=image_size||input_bytes[position..position+3] != input_bytes[run_pos..run_pos+3]
+        //only write bytes that are not part of runlength
+        //TODO rgb run add case or add as run type
+        //TODO when all three have run, special case, or avoid by making pixel run.
+        if run_count_red==1||run_count_green==1||run_count_blue==1
+        {
+            bitwriter.write_bits_u8( 2,PREFIX_RGB )?;
+        }
+        if run_count_red > 1
+        {
+            //skip
+            run_count_red-=1;
+        }
+        else
+        {
+            debug_assert_eq!(run_count_red,1);
+            bitwriter.write_bits_u8( 8,input_bytes[position] )?;
+            //here a run can start
+            while position+channels*run_count_red<image_size && input_bytes[position] == input_bytes[position+channels*run_count_red]
             {
-                break;
+                run_count_red+=1;
+            }
+
+            if run_count_red>1
+            {
+                //add red runlength
+                //loop
+                let mut temp_run_count_red=run_count_red-2;
+                loop
+                {
+                    bitwriter.write_bits_u8( 8, (PREFIX_RED_RUN<<4)+((temp_run_count_red & 0b0000_1111) as u8 ) )?;               
+                    
+                    temp_run_count_red = temp_run_count_red >> 4;
+    
+                    if temp_run_count_red == 0
+                    {
+                       break;
+                    }
+                }
             }
         }
-        //loop ends on first pixel outside the run
-        if run_pos-position>channels
+        
+        if run_count_green > 1
         {
-            //write runlength
-            //output_writer.write_all( &((run_pos-position)/channels).to_be_bytes()[0..1] )?;
-            //2 diff: 1 for run_pos being  at the next already, 1 for write start at 0 instead of 1
-            let mut run_count = ( run_pos - position ) / channels - 2;
-
-            loop
-            {
-               bitwriter.write_bits_u8( 6, (PREFIX_RUN<<4)+((run_count & 0b0000_1111) as u8 ) )?;
-               //bitwriter.write_bits( 4, (run_count & 0b0000_1111) as u8 )?;
-               run_count = run_count >> 4;
-
-               if run_count == 0
-               {
-                  break;
-               }
-            }
-            //
+            //skip
+            run_count_green-=1;
         }
-        position=run_pos;
-        //position+=channels;
+        else
+        {
+            debug_assert_eq!(run_count_green,1);
+            bitwriter.write_bits_u8( 8,input_bytes[position+1] )?;        
+            while position+channels*run_count_red<image_size && input_bytes[position+1] == input_bytes[position+1+channels*run_count_green]
+            {
+                run_count_green+=1;
+            }
+
+            if run_count_green>1
+            {
+                //add red runlength
+                //loop
+                let mut temp_run_count_green=run_count_green-2;
+                loop
+                {
+                    bitwriter.write_bits_u8( 8, (PREFIX_GREEN_RUN<<4)+((temp_run_count_green & 0b0000_1111) as u8 ) )?;               
+                    
+                    temp_run_count_green = temp_run_count_green >> 4;
+    
+                    if temp_run_count_green == 0
+                    {
+                       break;
+                    }
+                }
+            }
+        }
+
+        
+        if run_count_blue > 1
+        {
+            //skip
+            run_count_blue-=1;
+        }
+        else
+        {
+            debug_assert_eq!(run_count_blue,1);
+            bitwriter.write_bits_u8( 8,input_bytes[position+2] )?;
+            while position+channels*run_count_red<image_size && input_bytes[position+2] == input_bytes[position+2+channels*run_count_blue]
+            {
+                run_count_blue+=1;
+            }
+
+            if run_count_blue>1
+            {
+                //add red runlength
+                //loop
+                let mut temp_run_count_blue=run_count_blue-2;
+                loop
+                {
+                    bitwriter.write_bits_u8( 8, (PREFIX_BLUE_RUN<<4)+((temp_run_count_blue & 0b0000_1111) as u8 ) )?;               
+                    
+                    temp_run_count_blue = temp_run_count_blue >> 4;
+    
+                    if temp_run_count_blue == 0
+                    {
+                       break;
+                    }
+                }
+            }
+        }
+
+
+        //counts end up off by 1
+        //let run_pos=run_count_blue*channels;
+
+        //position=run_pos;
+        position+=channels;
 
     }
     //not used, but to make the dceoder dosen't crash at the end
