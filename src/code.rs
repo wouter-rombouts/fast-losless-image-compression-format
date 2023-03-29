@@ -141,15 +141,7 @@ pub fn encode<W: io::Write>(
             temp_count_green-=(min-1);
             temp_count_blue-=(min-1);
 
-            if position ==0
-            {
-                println!("temp_count_red: {}",temp_count_red);
-                println!("temp_count_green: {}",temp_count_green);
-                println!("temp_count_blue: {}",temp_count_blue);
-                position+=(min-1)*channels;
-                println!("position: {}",position);
-            }
-            else{position+=(min-1)*channels;}
+            position+=(min-1)*channels;
 
 
         }
@@ -266,45 +258,12 @@ pub fn decode<R: io::Read>(
     };
     let mut prefix_2bits: u8 = bitreader.read_bitsu8(2)?;
 
-    let mut red_curr_runlength: usize = 0;
-    let mut green_curr_runlength: usize = 0;
-    let mut blue_curr_runlength: usize = 0;
-    while position < image_size {
-        //if prefix_2bits ==
-
-        let mut pixel_run_length: usize = 1;
-        let mut pixel_curr_runcount: u8 = 0;
-
-        //TODO only when run_length
-
-        //TODO: only read n bytes, depending on colors not in run
-
-            //prefix_2bits = bitreader.read_bitsu8(2)?;
-
-            /*loop
-            {
-                //shortcircuit logical and, only get prefix 3-4 when it is a run
-                if prefix_2bits != PREFIX_RUN || PREFIX_PIXEL_RUN != bitreader.read_bitsu8(2)?
-                {
-                    if pixel_curr_runcount >0
-                    {
-                        for _ in 0..pixel_run_length
-                        {
-                            output_vec.extend_from_slice(&[output_vec[position],output_vec[position+1],output_vec[position+2]]);
-                        }
-
-                        position+=channels*pixel_run_length;
-                   }
-                   break;
-                }
-
-                pixel_run_length += ( bitreader.read_bitsu8(4)? as usize ) << pixel_curr_runcount;
-                prefix_2bits = bitreader.read_bitsu8(2)?;
-                pixel_curr_runcount += 4;
-
-            }*/
-            //Start outputting at +1 pos
-
+    //curr_lengths[0] is red
+    //curr_lengths[1] is green
+    //curr_lengths[2] is blue
+    let mut curr_lengths: [usize;3]=[0;3];
+    while position < image_size
+    {
 
             //read full run for 1 run type up to 3 times
             if prefix_2bits == PREFIX_RUN
@@ -312,22 +271,50 @@ pub fn decode<R: io::Read>(
                 let mut run_prefix = bitreader.read_bitsu8(2)?;
                 let mut temp_red_curr_runcount: u8 = 0;
                 let mut temp_green_curr_runcount: u8 = 0;
-                let mut temp_blue_curr_runcount: u8 = 0;
+                let mut temp_blue_curr_runcount: u8 = 0;  
+
+                let mut pixel_run_length: usize = 1;
+                let mut pixel_curr_runcount: u8 = 0;
+                loop
+                {
+                    //shortcircuit logical and, only get prefix 3-4 when it is a run
+                    if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_PIXEL_RUN
+                    {
+                        if pixel_curr_runcount >0
+                        {
+                            for _ in 0..pixel_run_length
+                            {
+                                output_vec.extend_from_within(position-3..=position-1);
+                            }
+    
+                            position+=channels*pixel_run_length;
+                       }
+                       break;
+                    }
+    
+                    pixel_run_length += ( bitreader.read_bitsu8(4)? as usize ) << pixel_curr_runcount;
+                    prefix_2bits = bitreader.read_bitsu8(2)?;
+                    if prefix_2bits == PREFIX_RUN {
+                        run_prefix = bitreader.read_bitsu8(2)?;
+                    }
+                    pixel_curr_runcount += 4;
+    
+                }
                 loop
                 {
                     if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_RED_RUN {
                         if temp_red_curr_runcount > 0 {
-                            red_curr_runlength += 1;
+                            curr_lengths[0] += 1;
                         }
                         break;
                     }
                     //why 36?
                     //println!("pos: {}, r: {}",position,temp_red_curr_runcount);
 
-                    red_curr_runlength +=
-                        (bitreader.read_bitsu8(4)? as usize) << temp_red_curr_runcount;
+                    curr_lengths[0] +=(bitreader.read_bitsu8(4)? as usize) << temp_red_curr_runcount;
                     prefix_2bits = bitreader.read_bitsu8(2)?;
-                    if prefix_2bits == PREFIX_RUN {
+                    if prefix_2bits == PREFIX_RUN
+                    {
                         run_prefix = bitreader.read_bitsu8(2)?;
                     }
                     temp_red_curr_runcount += 4;
@@ -336,14 +323,14 @@ pub fn decode<R: io::Read>(
                 loop {
                     if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_GREEN_RUN {
                         if temp_green_curr_runcount > 0 {
-                            green_curr_runlength += 1;
+                            curr_lengths[1] += 1;
                         }
                         break;
                     }
                     //why 36?
                     //println!("pos: {}, r: {}",position,temp_green_curr_runcount);
 
-                    green_curr_runlength +=
+                    curr_lengths[1] +=
                         (bitreader.read_bitsu8(4)? as usize) << temp_green_curr_runcount;
                     prefix_2bits = bitreader.read_bitsu8(2)?;
                     if prefix_2bits == PREFIX_RUN {
@@ -351,53 +338,47 @@ pub fn decode<R: io::Read>(
                     }
                     temp_green_curr_runcount += 4;
                 }
-                loop {
-                    if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_BLUE_RUN {
-                        if temp_blue_curr_runcount > 0 {
-                            blue_curr_runlength += 1;
-                        }
-                        break;
-                    }
-                    //why 36?
-                    //println!("pos: {}, r: {}",position,temp_blue_curr_runcount);
+                while  prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_BLUE_RUN
+                {
 
-                    blue_curr_runlength +=
-                        (bitreader.read_bitsu8(4)? as usize) << temp_blue_curr_runcount;
+                    curr_lengths[2]+= (bitreader.read_bitsu8(4)? as usize) << temp_blue_curr_runcount;
                     prefix_2bits = bitreader.read_bitsu8(2)?;
-                    if prefix_2bits == PREFIX_RUN {
+                    if prefix_2bits == PREFIX_RUN
+                    {
                         run_prefix = bitreader.read_bitsu8(2)?;
                     }
                     temp_blue_curr_runcount += 4;
                 }
+
+                if temp_blue_curr_runcount > 0
+                {
+                    curr_lengths[2] += 1;
+                }
             }
             else
             {
-                let color_check =red_curr_runlength == 0 || green_curr_runlength == 0 || blue_curr_runlength == 0;
-                if red_curr_runlength > 0 {
-                    red_curr_runlength -= 1;
-                    //dbg!(output_vec.len());
-                    output_vec.extend_from_within(position - 3..=position - 3);
-                } else {
-                    output_vec.extend_from_slice(&[bitreader.read_bitsu8(8)?]);
-                }
-                if green_curr_runlength > 0 {
-                    green_curr_runlength -= 1;
-                    output_vec.extend_from_within(position - 2..=position - 2);
-                } else {
-                    output_vec.extend_from_slice(&[bitreader.read_bitsu8(8)?]);
-                }
-                if blue_curr_runlength > 0 {
-                    blue_curr_runlength -= 1;
-                    output_vec.extend_from_within(position - 1..=position - 1);
-                } else {
-                    output_vec.extend_from_slice(&[bitreader.read_bitsu8(8)?]);
-                }
-                //get run length
-                    if color_check 
+                let color_check =curr_lengths.iter().any(|&x| x == 0);
+
+                for i in 0..=2
+                {
+                    if curr_lengths[i] > 0
                     {
-                        prefix_2bits = bitreader.read_bitsu8(2)?;
+                        curr_lengths[i] -= 1;
+                        //dbg!(output_vec.len());
+                        output_vec.extend_from_within(position-3+i..=position - 3+i);
                     }
-                    position += channels;
+                    else
+                    {
+                        output_vec.extend_from_slice(&[bitreader.read_bitsu8(8)?]);
+                    }
+                }
+
+                //get run length
+                if color_check 
+                {
+                    prefix_2bits = bitreader.read_bitsu8(2)?;
+                }
+                position += channels;
                 }
         //}
 
