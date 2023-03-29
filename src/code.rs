@@ -271,51 +271,39 @@ pub fn decode<R: io::Read>(
             {
                 let mut run_prefix = bitreader.read_bitsu8(2)?;
                 //let mut temp_curr_runcounts:[u8;3]=[0;3];                
-                let mut temp_curr_runcount;
+                //let mut temp_curr_runcount=0;
                 let mut pixel_run_length: usize = 1;
-                let mut pixel_curr_runcount: u8 = 0;
+                let mut temp_curr_runcount: u8 = 0;
                 loop
                 {
                     //shortcircuit logical and, only get prefix 3-4 when it is a run
                     if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_PIXEL_RUN
                     {
-                        if pixel_curr_runcount >0
+                        if temp_curr_runcount >0
                         {
-                            /*for _ in 0..pixel_run_length
-                            {
-                                output_vec.extend_from_within(position-3..=position-1);
-                            }
-    
-                            position+=channels*pixel_run_length;*/
                             for i in 0..=2
                             {
-                                curr_lengths[i] = pixel_run_length ;
+                                curr_lengths[i] = pixel_run_length;
                             }
                        }
                        break;
                     }
     
-                    pixel_run_length += ( bitreader.read_bitsu8(4)? as usize ) << pixel_curr_runcount;
+                    pixel_run_length += ( bitreader.read_bitsu8(4)? as usize ) << temp_curr_runcount;
                     prefix_2bits = bitreader.read_bitsu8(2)?;
                     if prefix_2bits == PREFIX_RUN
                     {
                         run_prefix = bitreader.read_bitsu8(2)?;
                     }
-                    pixel_curr_runcount += 4;
+                    temp_curr_runcount += 4;
     
                 }
 
                 for i in 0..=2
                 {
                     temp_curr_runcount=0;
-                    loop
+                    while prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_RUNS[i]
                     {
-                        if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_RUNS[i] {
-                            if temp_curr_runcount > 0 {
-                                curr_lengths[i] += 1;
-                            }
-                            break;
-                        }
                         //why 36?
                         //println!("pos: {}, r: {}",position,temp_curr_runcounts[0]);
     
@@ -326,62 +314,12 @@ pub fn decode<R: io::Read>(
                             run_prefix = bitreader.read_bitsu8(2)?;
                         }
                         temp_curr_runcount += 4;
-                    }  
-                }
-                /*loop
-                {
-                    if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_RUNS[0] {
-                        if temp_curr_runcount > 0 {
-                            curr_lengths[0] += 1;
-                        }
-                        break;
-                    }
-                    //why 36?
-                    //println!("pos: {}, r: {}",position,temp_curr_runcounts[0]);
-
-                    curr_lengths[0] +=(bitreader.read_bitsu8(4)? as usize) << temp_curr_runcount;
-                    prefix_2bits = bitreader.read_bitsu8(2)?;
-                    if prefix_2bits == PREFIX_RUN
+                    }                              
+                    if temp_curr_runcount > 0
                     {
-                        run_prefix = bitreader.read_bitsu8(2)?;
+                        curr_lengths[i] += 1;
                     }
-                    temp_curr_runcount += 4;
                 }
-                temp_curr_runcount=0;
-                loop {
-                    if prefix_2bits != PREFIX_RUN || run_prefix != PREFIX_RUNS[1] {
-                        if temp_curr_runcount > 0 {
-                            curr_lengths[1] += 1;
-                        }
-                        break;
-                    }
-                    //why 36?
-                    //println!("pos: {}, r: {}",position,temp_curr_runcounts[1]);
-
-                    curr_lengths[1] +=
-                        (bitreader.read_bitsu8(4)? as usize) << temp_curr_runcount;
-                    prefix_2bits = bitreader.read_bitsu8(2)?;
-                    if prefix_2bits == PREFIX_RUN {
-                        run_prefix = bitreader.read_bitsu8(2)?;
-                    }
-                    temp_curr_runcount += 4;
-                }temp_curr_runcount=0;
-                while  prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_RUNS[2]
-                {
-
-                    curr_lengths[2]+= (bitreader.read_bitsu8(4)? as usize) << temp_curr_runcount;
-                    prefix_2bits = bitreader.read_bitsu8(2)?;
-                    if prefix_2bits == PREFIX_RUN
-                    {
-                        run_prefix = bitreader.read_bitsu8(2)?;
-                    }
-                    temp_curr_runcount += 4;
-                }
-
-                if temp_curr_runcount > 0
-                {
-                    curr_lengths[2] += 1;
-                }*/
             }
             else
             {
