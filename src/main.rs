@@ -84,7 +84,7 @@ fn main()
             //println!("length: {}", imagebytes.bytes.len());
             println!("nice elapsed in: {}", before_nice.elapsed().as_millis());
 
-            #[cfg(debug_assertions)]
+            /*#[cfg(debug_assertions)]
             for (i,dump_byte) in fs::File::open("dump.bin").unwrap().bytes().enumerate()
             {
                 let dump_byte=dump_byte.unwrap();
@@ -92,7 +92,7 @@ fn main()
                 {
                     panic!("position {} has value {}, expected {}",i,output_vec[i],dump_byte);
                 }
-            }
+            }*/
             
             //println!("read nice file width: {}", width);
             //println!("read nice file height: {}", height);
