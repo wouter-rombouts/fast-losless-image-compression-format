@@ -24,6 +24,7 @@ fn main()
     if str::ends_with(a_file_from, PNG_FILE_EXT) {
         // The decoder is a build for reader and can be used to set various decoding options
         // via `Transformations`. The default output transformation is `Transformations::IDENTITY`.
+        let before_png = Instant::now();
         let decoder = png::Decoder::new(fs::File::open(a_file_from).unwrap());
         let mut reader = decoder.read_info().unwrap();
         // Allocate the output buffer.
@@ -36,6 +37,7 @@ fn main()
             png::ColorType::Rgb => channels = 3,
             _ => panic!("unsupported color type"),
         }
+        println!("png: {}", before_png.elapsed().as_millis());
         // Grab the bytes of the image.
         let bytes = &mut buf[..info.buffer_size()];
         let mut dumpfile = io::BufWriter::new(fs::File::create(DUMP_FILE).unwrap());
