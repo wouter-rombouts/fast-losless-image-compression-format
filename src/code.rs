@@ -96,7 +96,12 @@ pub fn encode<W: io::Write>(
             }
             if ret_pos != 99
             {            
-
+                if position==468354
+                {
+                    println!("ret_pos:{}",ret_pos);
+                    println!("blue:{}",previous16_pixels_unique[ret_pos as usize+previous16_pixels_unique_offset].2);
+                    println!("previous16_pixels_unique:{}",previous16_pixels_unique_offset);
+                }
                 bitwriter.write_bits_u8(2, PREFIX_BACK_REF)?;
                 bitwriter.write_bits_u8(4, ret_pos)?;
                 back_ref_cntr+=1;
@@ -343,7 +348,7 @@ pub fn decode<R: io::Read>(
 
         if prefix_2bits == PREFIX_BACK_REF && color_check
         {
-            back_ref = bitreader.read_bitsu8(4)? as usize;
+            back_ref = bitreader.read_bitsu8(4)? as usize;        
         }
 
         for i in 0..=2
@@ -357,7 +362,7 @@ pub fn decode<R: io::Read>(
             else
             {
                 if prefix_2bits==PREFIX_BACK_REF
-                {   
+                {
                     output_vec.push(previous16_pixels_unique[previous16_pixels_unique_offset+back_ref][i]);
                 }
                 else
@@ -370,7 +375,7 @@ pub fn decode<R: io::Read>(
             }
         }
         
-        if prefix_2bits==PREFIX_RGB
+        if prefix_2bits==PREFIX_RGB&&color_check
         {
             previous16_pixels_unique[previous16_pixels_unique_offset+16]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
             previous16_pixels_unique_offset+=1;
