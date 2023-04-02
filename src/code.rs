@@ -43,6 +43,7 @@ pub fn encode<W: io::Write>(
     //write channels outputted
     output_writer.write_all(&[channels_out])?;
     let width = image_header.width as usize;
+    let height = image_header.height as usize;
     let image_size = image_header.height as usize * image_header.width as usize * channels;
     let mut bitwriter = Bitwriter {
         writer: output_writer,
@@ -66,19 +67,185 @@ pub fn encode<W: io::Write>(
     let mut run_count_blue = 1;
     let mut back_ref_cntr = 0;
     let mut rgb_cntr = 0;
-    while position < image_size
+    //for /*loop_i*/position in 0..image_size
+    //let mut loop_index = 0;
+
+
+    let mut loop_index = 0;
+    for curr_y in (0..height).step_by(7)
     {
+        for curr_x in (0..width).step_by(9)
+        {
+            for curr_y_offset in 0..({if 7+curr_y<height{7}else{height-curr_y}})
+            {
+                let x_offset_width={if 9+curr_x<width{9}else{width-curr_x}};
+                for curr_x_offset in 0..x_offset_width
+                {
+
+                    position=channels * ((curr_y+curr_y_offset) * width + curr_x + ({if curr_y_offset%2==1{x_offset_width-1-curr_x_offset}else{curr_x_offset}}));
+                    #[cfg(debug_assertions)]
+                    if loop_index==63
+                    {   dbg!(curr_y);
+                        dbg!(curr_x);
+                        dbg!(curr_y_offset);
+                        dbg!(curr_x_offset);
+                        dbg!(x_offset_width);
+                        dbg!(x_offset_width);
+                        debug_assert_eq!(position,9 * channels);
+                    }
+                    #[cfg(debug_assertions)]
+                    if loop_index==3996*7+4
+                    {   dbg!(curr_y);
+                        dbg!(curr_x);
+                        dbg!(curr_y_offset);
+                        dbg!(curr_x_offset);
+                        dbg!(x_offset_width);
+                        dbg!(x_offset_width);
+                        debug_assert_eq!(position,7999 * channels);
+                    }
+                    
+                    #[cfg(debug_assertions)]
+                    if loop_index==4000*2996
+                    {   dbg!(curr_y);
+                        dbg!(curr_x);
+                        dbg!(curr_y_offset);
+                        dbg!(curr_x_offset);
+                        dbg!(x_offset_width);
+                        dbg!(height);
+                        if (7+curr_y)<height{println!("y_offset_height:{}",7);}else{println!("y_offset_height:{}",height-curr_y);}
+                        
+                        debug_assert_eq!(position,(4000*2996) * channels);
+                    }
+    //while position<image_size
+    //{
         //only write bytes that are not part of runlength
         //TODO rgb run add case or add as run type
         //TODO when all three have run, special case, or avoid by making pixel run.
         //
         //debug_assert!(run_count_red==1||run_count_green==1||run_count_blue==1);
         //
-        let mut temp_count_red = 1;
-        let mut temp_count_green = 1;
-        let mut temp_count_blue = 1;            
+        //position = loop_i;
 
-        if run_count_red == 1 || run_count_green == 1 || run_count_blue == 1
+        //TODO error last run???
+        /*let mut temp_count_red = 1;
+        let mut temp_count_green = 1;
+        let mut temp_count_blue = 1;*/
+        if (run_count_red>1&&previous16_pixels_unique[16+previous16_pixels_unique_offset].0!=input_bytes[position])||
+           (run_count_green>1&&previous16_pixels_unique[16+previous16_pixels_unique_offset].1!=input_bytes[position+1])||
+           (run_count_blue>1&&previous16_pixels_unique[16+previous16_pixels_unique_offset].2!=input_bytes[position+2])
+        {
+            //if any runs stopped.. calc pixel run
+            //calc min
+            let mut min =run_count_red.min(run_count_green).min(run_count_blue);
+
+            //min is pixel run count offset 1
+            //TODO use runs that are ongoing to calculate  min
+            if min > 1
+            {
+                let mut temp_pixel_run_length=min-2;
+                min=min-1;
+                loop
+                {
+                    bitwriter.write_bits_u8( 8, (PREFIX_PIXEL_RUN<<4)+((temp_pixel_run_length & 0b0000_1111) as u8 ) )?;
+                    
+                    if temp_pixel_run_length <16
+                    {
+                       break;
+                    }
+                    temp_pixel_run_length = temp_pixel_run_length >> 4;
+                }
+                run_count_red-=min;
+                run_count_green-=min;
+                run_count_blue-=min;
+    
+                position+=min*channels;
+    
+    
+            }
+
+            //add any runs that are stopped
+
+            if run_count_red > 1
+            {
+                //add red runlength
+                //loop
+                run_count_red = run_count_red - 2;
+                loop
+                {
+                    bitwriter.write_bits_u8( 4, PREFIX_RED_RUN )?;
+                    bitwriter.write_bits_u8( 3, (run_count_red & 0b0000_0111) as u8  )?;
+                    
+                    if run_count_red <8
+                    {
+                        break;
+                    }
+                    run_count_red = run_count_red >> 3;
+                }
+                run_count_red=1;
+            }
+            if run_count_green > 1
+            {
+                //add green runlength
+                //loop
+                run_count_green = run_count_green - 2;
+                loop
+                {
+                    bitwriter.write_bits_u8( 4, PREFIX_GREEN_RUN )?;
+                    bitwriter.write_bits_u8( 3, (run_count_green & 0b0000_0111) as u8  )?;
+                    
+                    if run_count_green <8
+                    {
+                        break;
+                    }
+                    run_count_green = run_count_green >> 3;
+                }
+                run_count_green=1;
+            }
+            if run_count_blue > 1
+            {
+                //add blue runlength
+                //loop
+                run_count_blue = run_count_blue - 2;
+                loop
+                {
+                    bitwriter.write_bits_u8( 4, PREFIX_BLUE_RUN )?;
+                    bitwriter.write_bits_u8( 3, (run_count_blue & 0b0000_0111) as u8  )?;
+                    
+                    if run_count_blue <8
+                    {
+                        break;
+                    }
+                    run_count_blue = run_count_blue >> 3;
+                }
+                run_count_green=1;
+            }
+
+        }
+        if previous16_pixels_unique[16+previous16_pixels_unique_offset].0==input_bytes[position]
+        {
+            run_count_red+=1;
+        }
+        if previous16_pixels_unique[16+previous16_pixels_unique_offset].1==input_bytes[position+1]
+        {
+            run_count_green+=1;
+        }
+        if previous16_pixels_unique[16+previous16_pixels_unique_offset].2==input_bytes[position+2]
+        {
+            run_count_blue+=1;
+        }
+
+        
+        /*else
+        {
+            //runs stops or run not busy
+            if run_count_red>1
+            {
+                //check run
+
+            }
+        }*/
+
+        if run_count_red ==1 ||run_count_green==1||run_count_blue==1
         {
             //TODO backreference remaining colors after runlength
 
@@ -86,22 +253,16 @@ pub fn encode<W: io::Write>(
             for i in 0..=15
             {
                 //check if non run bytes are equal
-                if ((run_count_red==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].0==input_bytes[position])||run_count_red != 1)&&
-                   ((run_count_green==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].1==input_bytes[position+1])||run_count_green != 1)&&
-                   ((run_count_blue==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].2==input_bytes[position+2])||run_count_blue != 1)
+                if ((run_count_red==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].0==input_bytes[position])||run_count_red > 1)&&
+                   ((run_count_green==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].1==input_bytes[position+1])||run_count_green > 1)&&
+                   ((run_count_blue==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].2==input_bytes[position+2])||run_count_blue > 1)
                 {
                         ret_pos=i as u8;
                         break;
                 }
             }
             if ret_pos != 99
-            {            
-                if position==468354
-                {
-                    println!("ret_pos:{}",ret_pos);
-                    println!("blue:{}",previous16_pixels_unique[ret_pos as usize+previous16_pixels_unique_offset].2);
-                    println!("previous16_pixels_unique:{}",previous16_pixels_unique_offset);
-                }
+            {         
                 bitwriter.write_bits_u8(2, PREFIX_BACK_REF)?;
                 bitwriter.write_bits_u8(4, ret_pos)?;
                 back_ref_cntr+=1;
@@ -142,7 +303,8 @@ pub fn encode<W: io::Write>(
                 }
             }
         }
-
+        //after adding non run colors
+/*
         if run_count_red > 1
         {
             //skip
@@ -187,7 +349,7 @@ pub fn encode<W: io::Write>(
         let mut min =temp_count_red.min(temp_count_green).min(temp_count_blue);
 
         //min is pixel run count offset 1
-
+        //TODO use runs that are ongoing to calculate  min
         if min > 1
         {
             let mut temp_pixel_run_length=min-2;
@@ -267,14 +429,25 @@ pub fn encode<W: io::Write>(
                 run_count_blue = run_count_blue >> 3;
             }
             run_count_blue = temp_count_blue;
-        }
+        }*/
 
         //counts end up off by 1
         //let run_pos=run_count_blue*channels;
 
         //position=run_pos;
-        position += channels;
+        //loop_index+=channels;
+        #[cfg(debug_assertions)]
+        {
+        loop_index+=1;
+        }
+
+        //position = loop_index;
+        
+                }
+            }
+        }
     }
+    //}
     println!("back_ref_cntr: {}",back_ref_cntr);
     println!("rgb_cntr: {}",rgb_cntr);
      //not used, but to make the dceoder dosen't crash at the end
@@ -305,6 +478,8 @@ pub fn decode<R: io::Read>(
     let height = u32::from_be_bytes(buf);
 
     println!("height:{}", height);
+    
+    let height = height as usize;
     let mut channels_buf = [0; 1];
     image_reader.read(&mut channels_buf)?;
     let channels = u8::from_be_bytes(channels_buf) as usize;
@@ -329,6 +504,12 @@ pub fn decode<R: io::Read>(
     let width = width as usize;
     let mut previous16_pixels_unique_offset = 0;
     let mut previous16_pixels_unique : [[u8;3];32] = [[0,0,0];32];
+    let mut x_spare_width = width%9;
+	let mut y_spare_height = height%7;
+	let mut x_small_box_pos=7*width - x_spare_width*7;
+	let mut y_large_box = width * (height-y_spare_height);
+	let mut small_box_start = width*height-y_spare_height*x_spare_width;
+	let mut x_width_box = 7*width;
     //curr_lengths[0] is red
     //curr_lengths[1] is green
     //curr_lengths[2] is blue
@@ -457,7 +638,44 @@ pub fn decode<R: io::Read>(
                 }
             }
         }
-        position += channels;
+        
+        let px_remain_after_box;
+		let x_range;
+		let y_range;
+		let fixed_range;
+		if(px_i>=small_box_start){
+			px_remain_after_box=px_i-small_box_start;
+			x_range=x_spare_width;
+			y_range=y_spare_height;
+			fixed_range=y_large_box+desc->width-x_spare_width;
+		}
+		else if(px_i>=y_large_box){
+			px_remain_after_box=px_i-y_large_box;
+			x_range=9;
+			y_range=y_spare_height;
+			fixed_range=y_large_box;
+		}
+		else{
+			fixed_range=px_i/x_width_box*x_width_box;
+			px_remain_after_box=px_i-fixed_range;
+			if(px_remain_after_box >= x_small_box_pos){
+				px_remain_after_box=px_remain_after_box%x_small_box_pos;
+				fixed_range=fixed_range+desc->width-x_spare_width;
+				x_range=x_spare_width;
+				y_range=7;
+			}
+			else{
+				//px_remain_after_box
+				x_range=9;
+				y_range=7;
+			}
+		}
+		unsigned char y_add=px_remain_after_box%(x_range*y_range)/x_range;
+		//y, then x
+		px_pos= channels * ( fixed_range+y_add*desc->width+
+		                     px_remain_after_box/(x_range*y_range)*x_range+(y_add%2)*(x_range-1-px_remain_after_box%x_range)+(1-(y_add%2))*(px_remain_after_box%x_range) );
+         
+        //position += channels;
         //}
 
 
@@ -468,7 +686,7 @@ pub fn decode<R: io::Read>(
     println!("{}", now.elapsed().as_millis());
     Ok(Image {
         width:width as u32,
-        height,
+        height:height as u32,
         channels: channels as u8,
     })
 }
