@@ -9,6 +9,7 @@ mod code;
 pub mod hfe;
 pub mod bitwriter;
 pub mod bitreader;
+pub(crate) mod image;
 
 fn main()
 {
@@ -59,7 +60,7 @@ fn main()
         let mut my_file = fs::File::create(a_file_to).expect("Error creating output file");
 
         let now = Instant::now();
-        code::encode(bytes, code::Image{width:info.width, height:info.height, channels:channels},channels, &mut my_output).expect("Could not encode Nice");
+        code::encode(bytes, image::Image{width:info.width as usize, height:info.height as usize, channels:channels},channels, &mut my_output).expect("Could not encode Nice");
         
         println!("{}", now.elapsed().as_millis());
         println!("read png file: {}", a_file_from);
@@ -106,7 +107,7 @@ fn main()
             let file = fs::File::create(a_file_to).unwrap();
             let ref mut w = io::BufWriter::new(file);
             let now = Instant::now();
-            let mut encoder = png::Encoder::new(w, image.width, image.height);
+            let mut encoder = png::Encoder::new(w, image.width as u32, image.height as u32);
             encoder.set_color(png::ColorType::Rgb);
             //encoder.set_depth(png::BitDepth::One);
             //encoder.set_compression(png::Compression::Best);

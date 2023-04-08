@@ -1,4 +1,5 @@
 const NICE: &[u8] = "nice".as_bytes();
+use crate::image::Image;
 use std::{time::Instant, *};
 
 use crate::{bitreader::Bitreader, bitwriter::Bitwriter};
@@ -10,11 +11,6 @@ pub(crate) const PREFIX_BLUE_RUN: u8 = 0b0010;
 pub(crate) const PREFIX_RGB: u8 = 0b01;
 pub(crate) const PREFIX_BACK_REF: u8 = 0b10;
 const PREFIX_RUNS:[u8;3]=[PREFIX_RED_RUN,PREFIX_GREEN_RUN,PREFIX_BLUE_RUN];
-pub struct Image {
-    pub width: u32,
-    pub height: u32,
-    pub channels: u8,
-}
 
 pub fn encode<W: io::Write>(
     input_bytes: &[u8],
@@ -72,6 +68,8 @@ pub fn encode<W: io::Write>(
 
     let mut prev_position=0;
     let mut loop_index = 0;
+
+
     for curr_y in (0..height).step_by(7)
     {
         for curr_x in (0..width).step_by(9)
@@ -83,15 +81,7 @@ pub fn encode<W: io::Write>(
                 {
                     prev_position=position;
                     position=channels * ((curr_y+curr_y_offset) * width + curr_x + ({if curr_y_offset%2==1{x_offset_width-1-curr_x_offset}else{curr_x_offset}}));
-                    if 468150 ==position{
-                        //dbg!(prefix_2bits);
-                        dbg!(run_count_blue);
-                        dbg!(run_count_red);
-                        dbg!(run_count_green);
-                        dbg!(input_bytes[position+0]);
-                        dbg!(input_bytes[position+1]);
-                        dbg!(input_bytes[position+2]);
-                    }
+
     //while position<image_size
     //{
         //only write bytes that are not part of runlength
@@ -107,8 +97,94 @@ pub fn encode<W: io::Write>(
         let mut temp_count_green = 1;
         let mut temp_count_blue = 1;*/
 
-        
-        //TODO use prev_pos
+        if run_count_red ==1 ||run_count_green==1||run_count_blue==1
+        {
+            //TODO backreference remaining colors after runlength
+            let mut ret_pos=99u8;
+
+            for i in 0..=15
+            {
+                //check if non run bytes are equal
+                if ((run_count_red==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].0==input_bytes[position])||run_count_red > 1)&&
+                   ((run_count_green==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].1==input_bytes[position+1])||run_count_green > 1)&&
+                   ((run_count_blue==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].2==input_bytes[position+2])||run_count_blue > 1)
+                {
+                        ret_pos=i as u8;
+                        break;
+                }
+            }
+            if ret_pos != 99
+            {         
+                bitwriter.write_bits_u8(2, PREFIX_BACK_REF)?;
+                bitwriter.write_bits_u8(4, ret_pos)?;
+                back_ref_cntr+=1;
+            }
+            else
+            {    
+                previous16_pixels_unique[previous16_pixels_unique_offset+16]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
+                previous16_pixels_unique_offset+=1;
+                if previous16_pixels_unique_offset==16
+                {
+                    for i in 0..=15
+                    {
+                        previous16_pixels_unique[i]=previous16_pixels_unique[i+16];
+                    }
+
+                    previous16_pixels_unique_offset=0;
+                }
+                bitwriter.write_bits_u8(2, PREFIX_RGB)?;
+                rgb_cntr+=1;
+                if run_count_red == 1
+                {
+                    debug_assert_eq!(run_count_red, 1);
+                    bitwriter.write_bits_u8(8, input_bytes[position])?;
+                    //here a run can start
+
+                }        
+                if run_count_green == 1
+                {
+                    debug_assert_eq!(run_count_green, 1);
+                    bitwriter.write_bits_u8(8, input_bytes[position + 1])?;
+
+                }
+                if run_count_blue == 1
+                {
+                    debug_assert_eq!(run_count_blue, 1);
+                    bitwriter.write_bits_u8(8, input_bytes[position + 2])?;
+
+                }
+            }
+        }
+        let mut pixel_run_loop_position=position+channels;
+        while input_bytes[pixel_run_loop_position]==input_bytes[position]&&
+              input_bytes[pixel_run_loop_position+1]==input_bytes[position+1]&&
+              input_bytes[pixel_run_loop_position+2]==input_bytes[position+2]
+        {
+            pixel_run_loop_position+=channels;
+        }
+
+
+        if pixel_run_loop_position > position+channels
+        {
+            let mut temp_pixel_run_length=(pixel_run_loop_position-position)/channels-2;
+            position = pixel_run_loop_position;
+            loop
+            {
+                bitwriter.write_bits_u8( 8, (PREFIX_PIXEL_RUN<<4)+((temp_pixel_run_length & 0b0000_1111) as u8 ) )?;
+                
+                if temp_pixel_run_length <16
+                {
+                   break;
+                }
+                temp_pixel_run_length = temp_pixel_run_length >> 4;
+            }
+
+            //position+=min*channels;
+
+
+        }
+
+        //use prev_pos
         if (run_count_red>1&&input_bytes[prev_position]!=input_bytes[position])||
            (run_count_green>1&&input_bytes[prev_position+1]!=input_bytes[position+1])||
            (run_count_blue>1&&input_bytes[prev_position+2]!=input_bytes[position+2])
@@ -119,28 +195,7 @@ pub fn encode<W: io::Write>(
 
             //min is pixel run count offset 1
             //TODO use runs that are ongoing to calculate  min
-            if min > 1
-            {
-                let mut temp_pixel_run_length=min-2;
-                min=min-1;
-                loop
-                {
-                    bitwriter.write_bits_u8( 8, (PREFIX_PIXEL_RUN<<4)+((temp_pixel_run_length & 0b0000_1111) as u8 ) )?;
-                    
-                    if temp_pixel_run_length <16
-                    {
-                       break;
-                    }
-                    temp_pixel_run_length = temp_pixel_run_length >> 4;
-                }
-                run_count_red-=min;
-                run_count_green-=min;
-                run_count_blue-=min;
-    
-                //position+=min*channels;
-    
-    
-            }
+
 
             //add any runs that are stopped
             //BUG: partial runs are added after the pertial pixels, causing decoder error
@@ -216,12 +271,6 @@ pub fn encode<W: io::Write>(
             if input_bytes[prev_position+2]==input_bytes[position+2]
             {
                 run_count_blue+=1;
-                if 468150 ==position{
-                    dbg!(run_count_red);
-                    dbg!(run_count_green);
-                    dbg!(run_count_blue);
-                    dbg!(prev_position);
-                }
             }
         }
 
@@ -236,75 +285,13 @@ pub fn encode<W: io::Write>(
             }
         }*/
 
-        if run_count_red ==1 ||run_count_green==1||run_count_blue==1
-        {
-            //TODO backreference remaining colors after runlength
-            let mut ret_pos=99u8;
-
-            for i in 0..=15
-            {
-                //check if non run bytes are equal
-                if ((run_count_red==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].0==input_bytes[position])||run_count_red > 1)&&
-                   ((run_count_green==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].1==input_bytes[position+1])||run_count_green > 1)&&
-                   ((run_count_blue==1&&previous16_pixels_unique[i+previous16_pixels_unique_offset].2==input_bytes[position+2])||run_count_blue > 1)
-                {
-                        ret_pos=i as u8;
-                        break;
-                }
-            }
-            if ret_pos != 99
-            {         
-                bitwriter.write_bits_u8(2, PREFIX_BACK_REF)?;
-                bitwriter.write_bits_u8(4, ret_pos)?;
-                back_ref_cntr+=1;
-            }
-            else
-            {    
-                previous16_pixels_unique[previous16_pixels_unique_offset+16]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
-                previous16_pixels_unique_offset+=1;
-                if previous16_pixels_unique_offset==16
-                {
-                    for i in 0..=15
-                    {
-                        previous16_pixels_unique[i]=previous16_pixels_unique[i+16];
-                    }
-
-                    previous16_pixels_unique_offset=0;
-                }
-                if 468141 ==position{
-                    dbg!(input_bytes[position+0]);
-                    dbg!(input_bytes[position+1]);
-                    dbg!(input_bytes[position+2]);
-                }
-                bitwriter.write_bits_u8(2, PREFIX_RGB)?;
-                rgb_cntr+=1;
-                if run_count_red == 1
-                {
-                    debug_assert_eq!(run_count_red, 1);
-                    bitwriter.write_bits_u8(8, input_bytes[position])?;
-                    //here a run can start
-
-                }        
-                if run_count_green == 1
-                {
-                    debug_assert_eq!(run_count_green, 1);
-                    bitwriter.write_bits_u8(8, input_bytes[position + 1])?;
-
-                }
-                if run_count_blue == 1
-                {
-                    debug_assert_eq!(run_count_blue, 1);
-                    bitwriter.write_bits_u8(8, input_bytes[position + 2])?;
-
-                }
-            }
-        }
+        
         //after adding non run colors
 
-        #[cfg(debug_assertions)]
-        {
+        //#[cfg(debug_assertions)]
+        //{
         loop_index+=1;
-        }
+        //}
 
         //position = loop_index;
         
@@ -552,7 +539,8 @@ pub fn decode<R: io::Read>(
                         run_prefix = bitreader.read_bitsu8(2)?;
                     }
                     temp_curr_runcount += 3;
-                }                              
+                }                   
+                           
                 if temp_curr_runcount > 0
                 {
                     curr_lengths[i] += 1;
@@ -571,8 +559,8 @@ pub fn decode<R: io::Read>(
     //bitreader.read_bits(8)?;
     println!("{}", now.elapsed().as_millis());
     Ok(Image {
-        width:width as u32,
-        height:height as u32,
+        width:width,
+        height:height,
         channels: channels as u8,
     })
 }
