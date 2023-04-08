@@ -19,10 +19,6 @@ impl Image
         let subblock_width;
         let mut remainder;
         let mut offset;
-
-        //
-        //
-
         if index >= (self.height-self.height%7)*self.width
         {
             //near end of image

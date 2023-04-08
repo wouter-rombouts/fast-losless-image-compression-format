@@ -29,8 +29,8 @@ pub fn encode<W: io::Write>(
     //write width
     output_writer.write_all(
         &[
-            image_header.width.to_be_bytes(),
-            image_header.height.to_be_bytes(),
+            (image_header.width as u32).to_be_bytes(),
+            (image_header.height as u32).to_be_bytes(),
         ]
         .concat(),
     )?;
@@ -38,8 +38,6 @@ pub fn encode<W: io::Write>(
     //output_writer.write_all( & )?;
     //write channels outputted
     output_writer.write_all(&[channels_out])?;
-    let width = image_header.width as usize;
-    let height = image_header.height as usize;
     let image_size = image_header.height as usize * image_header.width as usize * channels;
     let mut bitwriter = Bitwriter {
         writer: output_writer,
@@ -63,42 +61,33 @@ pub fn encode<W: io::Write>(
     let mut run_count_blue = 1;
     let mut back_ref_cntr = 0;
     let mut rgb_cntr = 0;
-    //for /*loop_i*/position in 0..image_size
+
+    //let mut prev_position=0;
     //let mut loop_index = 0;
 
-    let mut prev_position=0;
-    let mut loop_index = 0;
 
-
-    for curr_y in (0..height).step_by(7)
+    for loop_index in 0..image_size/channels
     {
-        for curr_x in (0..width).step_by(9)
+
+        
+//TODO move to end, only when run for color was not recetnly added
+        let is_not_in_run=run_count_red ==1 ||run_count_green==1||run_count_blue==1;
+        if run_count_red>1
         {
-            for curr_y_offset in 0..({if 7+curr_y<height{7}else{height-curr_y}})
-            {
-                let x_offset_width={if 9+curr_x<width{9}else{width-curr_x}};
-                for curr_x_offset in 0..x_offset_width
-                {
-                    prev_position=position;
-                    position=channels * ((curr_y+curr_y_offset) * width + curr_x + ({if curr_y_offset%2==1{x_offset_width-1-curr_x_offset}else{curr_x_offset}}));
-
-    //while position<image_size
-    //{
-        //only write bytes that are not part of runlength
-        //TODO rgb run add case or add as run type
-        //TODO when all three have run, special case, or avoid by making pixel run.
-        //
-        //debug_assert!(run_count_red==1||run_count_green==1||run_count_blue==1);
-        //
-        //position = loop_i;
-
-        //TODO error last run???
-        /*let mut temp_count_red = 1;
-        let mut temp_count_green = 1;
-        let mut temp_count_blue = 1;*/
-
-        if run_count_red ==1 ||run_count_green==1||run_count_blue==1
+            run_count_red-=1;
+        }
+        if run_count_green>1
         {
+            run_count_green-=1;
+        }
+        if run_count_blue>1
+        {
+            run_count_blue-=1;
+        }
+        if (run_count_red ==1 ||run_count_green==1||run_count_blue==1)&&is_not_in_run
+        {
+            //prev_position=position;
+            position=image_header.calc_pos_from(loop_index)*channels;
             //TODO backreference remaining colors after runlength
             let mut ret_pos=99u8;
 
@@ -136,168 +125,168 @@ pub fn encode<W: io::Write>(
                 rgb_cntr+=1;
                 if run_count_red == 1
                 {
-                    debug_assert_eq!(run_count_red, 1);
                     bitwriter.write_bits_u8(8, input_bytes[position])?;
                     //here a run can start
 
                 }        
                 if run_count_green == 1
                 {
-                    debug_assert_eq!(run_count_green, 1);
                     bitwriter.write_bits_u8(8, input_bytes[position + 1])?;
 
                 }
                 if run_count_blue == 1
                 {
-                    debug_assert_eq!(run_count_blue, 1);
                     bitwriter.write_bits_u8(8, input_bytes[position + 2])?;
 
                 }
             }
-        }
-        let mut pixel_run_loop_position=position+channels;
-        while input_bytes[pixel_run_loop_position]==input_bytes[position]&&
-              input_bytes[pixel_run_loop_position+1]==input_bytes[position+1]&&
-              input_bytes[pixel_run_loop_position+2]==input_bytes[position+2]
-        {
-            pixel_run_loop_position+=channels;
-        }
-
-
-        if pixel_run_loop_position > position+channels
-        {
-            let mut temp_pixel_run_length=(pixel_run_loop_position-position)/channels-2;
-            position = pixel_run_loop_position;
-            loop
-            {
-                bitwriter.write_bits_u8( 8, (PREFIX_PIXEL_RUN<<4)+((temp_pixel_run_length & 0b0000_1111) as u8 ) )?;
-                
-                if temp_pixel_run_length <16
-                {
-                   break;
-                }
-                temp_pixel_run_length = temp_pixel_run_length >> 4;
-            }
-
-            //position+=min*channels;
-
-
-        }
-
-        //use prev_pos
-        if (run_count_red>1&&input_bytes[prev_position]!=input_bytes[position])||
-           (run_count_green>1&&input_bytes[prev_position+1]!=input_bytes[position+1])||
-           (run_count_blue>1&&input_bytes[prev_position+2]!=input_bytes[position+2])
-        {
-            //if any runs stopped.. calc pixel run
-            //calc min
-            let mut min =run_count_red.min(run_count_green).min(run_count_blue);
-
-            //min is pixel run count offset 1
-            //TODO use runs that are ongoing to calculate  min
-
-
-            //add any runs that are stopped
-            //BUG: partial runs are added after the pertial pixels, causing decoder error
-            //<<BUG if color starts before pixel run
-            //solution: ??
-            if run_count_red > 1
-            {
-                //add red runlength
-                //loop
-                run_count_red = run_count_red - 2;
-                loop
-                {
-                    bitwriter.write_bits_u8( 4, PREFIX_RED_RUN )?;
-                    bitwriter.write_bits_u8( 3, (run_count_red & 0b0000_0111) as u8  )?;
-                    
-                    if run_count_red <8
-                    {
-                        break;
-                    }
-                    run_count_red = run_count_red >> 3;
-                }
-                run_count_red=1;
-            }
-            if run_count_green > 1
-            {
-                //add green runlength
-                //loop
-                run_count_green = run_count_green - 2;
-                loop
-                {
-                    bitwriter.write_bits_u8( 4, PREFIX_GREEN_RUN )?;
-                    bitwriter.write_bits_u8( 3, (run_count_green & 0b0000_0111) as u8  )?;
-                    
-                    if run_count_green <8
-                    {
-                        break;
-                    }
-                    run_count_green = run_count_green >> 3;
-                }
-                run_count_green=1;
-            }
-            if run_count_blue > 1
-            {
-                //add blue runlength
-                //loop
-                run_count_blue = run_count_blue - 2;
-                loop
-                {
-                    bitwriter.write_bits_u8( 4, PREFIX_BLUE_RUN )?;
-                    bitwriter.write_bits_u8( 3, (run_count_blue & 0b0000_0111) as u8  )?;
-                    
-                    if run_count_blue <8
-                    {
-                        break;
-                    }
-                    run_count_blue = run_count_blue >> 3;
-                }
-                run_count_green=1;
-            }
-
-        }
-        if position>0
-        {
             
-            if input_bytes[prev_position]==input_bytes[position]
+            //check if pixel run
+            //TODO skip if in a pixel run
+            let mut pixel_run_length = 0;
+            let mut pixel_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
+            
+            while pixel_run_loop_position<image_size&&input_bytes[pixel_run_loop_position]==input_bytes[position]&&
+                  input_bytes[pixel_run_loop_position+1]==input_bytes[position+1]&&
+                  input_bytes[pixel_run_loop_position+2]==input_bytes[position+2]
             {
-                run_count_red+=1;
+                pixel_run_length+=1;
+                pixel_run_loop_position=image_header.calc_pos_from(loop_index+pixel_run_length)*channels;
             }
-            if input_bytes[prev_position+1]==input_bytes[position+1]
+            // these pixels will be skipped in the next iterations
+            //TODO test if actually skipping all at once is faster
+            run_count_red+=pixel_run_length;
+            run_count_green+=pixel_run_length;
+            run_count_blue+=pixel_run_length;
+
+            if pixel_run_length > 0
             {
-                run_count_green+=1;
+                pixel_run_length=pixel_run_length-1;
+                //position = pixel_run_loop_position;
+                loop
+                {
+                    bitwriter.write_bits_u8( 8, (PREFIX_PIXEL_RUN<<4)+((pixel_run_length & 0b0000_1111) as u8 ) )?;
+                    
+                    if pixel_run_length <16
+                    {
+                    break;
+                    }
+                    pixel_run_length = pixel_run_length >> 4;
+                }
+
+                //position+=min*channels;
+
+
             }
-            if input_bytes[prev_position+2]==input_bytes[position+2]
+
+            //check for color run
+            if run_count_red==1
             {
-                run_count_blue+=1;
+                let mut red_run_length = 0;
+                let mut red_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
+                
+                while red_run_loop_position<image_size&&input_bytes[red_run_loop_position]==input_bytes[position]&&
+                      input_bytes[red_run_loop_position+1]!=input_bytes[position+1]&&
+                      input_bytes[red_run_loop_position+2]!=input_bytes[position+2]
+                {
+                    red_run_length+=1;
+                    red_run_loop_position=image_header.calc_pos_from(loop_index+red_run_length)*channels;
+                }
+
+                if red_run_length > 0
+                {
+                    //add red runlength
+                    //loop
+                    run_count_red=red_run_length+1;
+                    red_run_length = red_run_length - 1;
+                    loop
+                    {
+                        bitwriter.write_bits_u8( 4, PREFIX_RED_RUN )?;
+                        bitwriter.write_bits_u8( 3, (red_run_length & 0b0000_0111) as u8  )?;
+                        
+                        if red_run_length <8
+                        {
+                            break;
+                        }
+                        red_run_length = red_run_length >> 3;
+                    }
+                }
+            }
+            if run_count_green==1
+            {
+                let mut green_run_length = 0;
+                let mut green_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
+                
+                while green_run_loop_position<image_size&&input_bytes[green_run_loop_position]!=input_bytes[position]&&
+                      input_bytes[green_run_loop_position+1]==input_bytes[position+1]&&
+                      input_bytes[green_run_loop_position+2]!=input_bytes[position+2]
+                {
+                    green_run_length+=1;
+                    green_run_loop_position=image_header.calc_pos_from(loop_index+green_run_length)*channels;
+                }
+
+                if green_run_length > 0
+                {
+                    //add green runlength
+                    //loop
+                    run_count_green=green_run_length+1;
+                    green_run_length = green_run_length - 1;
+                    loop
+                    {
+                        bitwriter.write_bits_u8( 4, PREFIX_GREEN_RUN )?;
+                        bitwriter.write_bits_u8( 3, (green_run_length & 0b0000_0111) as u8  )?;
+                        
+                        if green_run_length <8
+                        {
+                            break;
+                        }
+                        green_run_length = green_run_length >> 3;
+                    }
+                }
+            }
+            if run_count_blue==1
+            {
+                let mut blue_run_length = 0;
+                let mut blue_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
+                
+                while blue_run_loop_position<image_size&&input_bytes[blue_run_loop_position]!=input_bytes[position]&&
+                      input_bytes[blue_run_loop_position+1]!=input_bytes[position+1]&&
+                      input_bytes[blue_run_loop_position+2]==input_bytes[position+2]
+                {
+                    blue_run_length+=1;
+                    blue_run_loop_position=image_header.calc_pos_from(loop_index+blue_run_length)*channels;
+                }
+
+                if blue_run_length > 0
+                {
+                    //add blue runlength
+                    //loop
+                    run_count_blue=blue_run_length+1;
+                    blue_run_length = blue_run_length - 1;
+                    loop
+                    {
+                        bitwriter.write_bits_u8( 4, PREFIX_BLUE_RUN )?;
+                        bitwriter.write_bits_u8( 3, (blue_run_length & 0b0000_0111) as u8  )?;
+                        
+                        if blue_run_length <8
+                        {
+                            break;
+                        }
+                        blue_run_length = blue_run_length >> 3;
+                    }
+                }
             }
         }
-
-        
-        /*else
-        {
-            //runs stops or run not busy
-            if run_count_red>1
-            {
-                //check run
-
-            }
-        }*/
-
         
         //after adding non run colors
 
         //#[cfg(debug_assertions)]
         //{
-        loop_index+=1;
+        //loop_index+=1;
         //}
 
         //position = loop_index;
         
-                }
-            }
-        }
     }
     //}
     println!("back_ref_cntr: {}",back_ref_cntr);
