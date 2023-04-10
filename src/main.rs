@@ -60,7 +60,7 @@ fn main()
         let mut my_file = fs::File::create(a_file_to).expect("Error creating output file");
 
         let now = Instant::now();
-        code::encode(bytes, image::Image{width:info.width as usize, height:info.height as usize, channels:channels},channels, &mut my_output).expect("Could not encode Nice");
+        code::encode(bytes, image::Image::new(info.width as usize, info.height as usize, channels),channels, &mut my_output).expect("Could not encode Nice");
         
         println!("{}", now.elapsed().as_millis());
         println!("read png file: {}", a_file_from);

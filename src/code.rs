@@ -356,11 +356,11 @@ pub fn decode<R: io::Read>(
     println!("channels:{}", channels);
     //let bitreader = BitReader::<R, BigEndian>::new(reader);
     let image_size = width as usize * height as usize * channels;
-    let image =Image {
-        width:width as usize,
-        height:height,
-        channels: channels as u8,
-    };
+    let image =Image::new(
+        width as usize,
+        height,
+         channels as u8,
+    );
     let mut position = 0;
     println!("image_size:{}", image_size);
     *output_vec = Vec::with_capacity(image_size);
@@ -398,11 +398,11 @@ pub fn decode<R: io::Read>(
         
 		//y, then x
         prev_position=position;
-		position= channels * image.calc_pos_from(px_i);
-        
+        position= channels * image.calc_pos_from(px_i);
 
         let color_check=curr_lengths.iter().any(|&x| x == 0);
         let mut back_ref=0;
+
 
 
         if prefix_2bits == PREFIX_BACK_REF && color_check
@@ -472,9 +472,10 @@ pub fn decode<R: io::Read>(
         if prefix_2bits == PREFIX_RUN
         {
             let mut run_prefix = bitreader.read_bitsu8(2)?;
+            let mut temp_curr_runcount: u8 = 0;
             //let mut temp_curr_runcounts:[u8;3]=[0;3];                
             //let mut temp_curr_runcount=0;
-            let mut pixel_run_length: usize = 1;
+            /*let mut pixel_run_length: usize = 1;
             let mut temp_curr_runcount: u8 = 0;
             
             while prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_PIXEL_RUN
@@ -495,7 +496,7 @@ pub fn decode<R: io::Read>(
                 {
                     curr_lengths[i] = pixel_run_length;
                 }
-            }
+            }*/
 
             for i in 0..=2
             {
