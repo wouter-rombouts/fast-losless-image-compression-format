@@ -1,5 +1,5 @@
 const NICE: &[u8] = "nice".as_bytes();
-use crate::image::Image;
+use crate::image::{Image, self};
 use std::{time::Instant, *};
 
 use crate::{bitreader::Bitreader, bitwriter::Bitwriter};
@@ -385,150 +385,250 @@ pub fn decode<R: io::Read>(
     //curr_lengths[1] is green
     //curr_lengths[2] is blue
     //TODO snake + distinct cache + HFE
+
     #[cfg(debug_assertions)]
     let mut dump= Vec::<u8>::new();
     #[cfg(debug_assertions)]
     io::Read::read_to_end(&mut fs::File::open("dump.bin").unwrap(), &mut dump).ok();
     
+    let pos_subblock_lookup = [0,channels,2*channels,3*channels,4*channels,
+                               (4+image.width)*channels,(3+image.width)*channels,(2+image.width)*channels,(1+image.width)*channels,(image.width)*channels,
+                               (2*image.width)*channels,(1+2*image.width)*channels,(2+2*image.width)*channels,(3+2*image.width)*channels,(4+2*image.width)*channels,
+                               (4+3*image.width)*channels,(3+3*image.width)*channels,(2+3*image.width)*channels,(1+3*image.width)*channels,(3*image.width)*channels,
+                               (4*image.width)*channels,(1+4*image.width)*channels,(2+4*image.width)*channels,(3+4*image.width)*channels,(4+4*image.width)*channels];
+    let mut pos_subblock_xleftover_lookup: Vec<usize>;
+    let mut pos_subblock_yleftover_lookup: Vec<usize>;
+    let mut list_of_subblocks_in_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
+    let mut list_of_subblocks_in_bottom_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
+    let mut pos_subblock_xyleftover_lookup: Vec<usize>;
+    for i in 0..image.subblocks_in_width
+    {
+        list_of_subblocks_in_widthblock.push(&pos_subblock_lookup);
+    }
+    if image.width_subblock_leftover>0
+    {
+        pos_subblock_xleftover_lookup=Vec::with_capacity(image.width_subblock_leftover*image::SUBBLOCK_HEIGHT_MAX);
+        for h in 0..image::SUBBLOCK_HEIGHT_MAX
+        {
+            //pos_subblock_xleftover_lookup.extend((0..image.width_subblock_leftover).map(|i|(h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels));
+            for i in 0..image.width_subblock_leftover
+            {
+                pos_subblock_xleftover_lookup.push((h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels);
+            }
+        }
+        list_of_subblocks_in_widthblock.push(&pos_subblock_xleftover_lookup);
+    }
+    //TODO push list_of_subblocks_in_widthblock over the height except leftover
+    let mut list_of_subblocks_in_heightblock:Vec<&Vec<&[usize]>>=Vec::with_capacity(image.subblocks_in_height+1);
+    //add top width blocks
+    for i in 0..image.subblocks_in_height
+    {
+        list_of_subblocks_in_heightblock.push(&list_of_subblocks_in_widthblock);
+    }
+    //bottom width block
+    if image.height_subblock_leftover>0
+    {
+        pos_subblock_yleftover_lookup=Vec::with_capacity(image.height_subblock_leftover*image::SUBBLOCK_WIDTH_MAX);
+        for h in 0..image.height_subblock_leftover
+        {
+            //pos_subblock_xleftover_lookup.extend((0..image.width_subblock_leftover).map(|i|(h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels));
+            for i in 0..image::SUBBLOCK_WIDTH_MAX
+            {
+                pos_subblock_yleftover_lookup.push((h*image.width+if h%2==1{image::SUBBLOCK_WIDTH_MAX-i-1}else{ i})*channels);
+            }
+        }
+        list_of_subblocks_in_bottom_widthblock.push(&pos_subblock_yleftover_lookup);
+        if image.width_subblock_leftover>0
+        {
+            pos_subblock_xyleftover_lookup=Vec::with_capacity(image.height_subblock_leftover*image.width_subblock_leftover);
+            for h in 0..image.height_subblock_leftover
+            {
+                //pos_subblock_xleftover_lookup.extend((0..image.width_subblock_leftover).map(|i|(h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels));
+                for i in 0..image.width_subblock_leftover
+                {
+                    pos_subblock_xyleftover_lookup.push((h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels);
+                }
+            }
+            list_of_subblocks_in_bottom_widthblock.push(&pos_subblock_xyleftover_lookup);
+            
+        }
+        list_of_subblocks_in_heightblock.push(&list_of_subblocks_in_bottom_widthblock);
 
+    }
+
+
+
+                
+            
     let mut curr_lengths: [usize;3]=[0;3];
     //while position < image_size
-    for px_i in 0..image_size/channels
+    /*let mut pos_offset=0;
+    for i in 0..image.subblocks_in_width
     {
-        
-		//y, then x
-        prev_position=position;
-        position= channels * image.calc_pos_from(px_i);
-
-        let color_check=curr_lengths.iter().any(|&x| x == 0);
-        let mut back_ref=0;
-
-
-
-        if prefix_2bits == PREFIX_BACK_REF && color_check
+        position=pos_offset+pos_subblock_lookup[i];
+    }
+    pos_offset+=crate::image::SUBBLOCK_WIDTH_MAX;*/
+    /*for px_i in 0..image_size/channels
+    {*/
+    #[cfg(debug_assertions)]
+    let mut loopindex=0;
+    
+    for y in 0..list_of_subblocks_in_heightblock.len()
+    {
+        for x in 0..list_of_subblocks_in_heightblock[y].len()
         {
-            back_ref = bitreader.read_bitsu8(5)? as usize;        
-        }
-
-        for i in 0..=2
-        {
-            if curr_lengths[i] > 0
-            {
-                curr_lengths[i] -= 1;
-                //println!("position: {}"position);
-                output_vec[position+i]=output_vec[prev_position+i];
-            }
-            else
-            {
-                if prefix_2bits==PREFIX_BACK_REF
+            for i in 0..list_of_subblocks_in_heightblock[y][x].len()
+            { 
+                //y, then x
+                prev_position=position;
+                position = channels*(y*image.width_block_size+x*image::SUBBLOCK_WIDTH_MAX)+list_of_subblocks_in_heightblock[y][x][i];
+                #[cfg(debug_assertions)]
+                if loopindex==1200000
                 {
-                    output_vec[position+i]=previous16_pixels_unique[previous16_pixels_unique_offset+back_ref][i];
+                    
+                    dbg!(image.subblocks_in_height);
+                    dbg!(list_of_subblocks_in_heightblock.len());
+                    dbg!(list_of_subblocks_in_heightblock[y].len());
+                    dbg!(list_of_subblocks_in_heightblock[y][x].len());
+                    dbg!(y);
+                    dbg!(x);
+                    dbg!(i);
+                    dbg!(loopindex);
+                    dbg!(channels * image.calc_pos_from(loopindex));
                 }
-                else
+                #[cfg(debug_assertions)]
                 {
-                    //if prefix_2bits==PREFIX_RGB
-                    //{
-                        output_vec[position+i]=bitreader.read_bitsu8(8)?;
-                        
 
-                    //}
+                    loopindex+=1;
                 }
-            }
-        }
+                //position= channels * image.calc_pos_from(px_i);
 
-        
-        if prefix_2bits==PREFIX_RGB&&color_check
-        {
-            previous16_pixels_unique[previous16_pixels_unique_offset+32]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
-            previous16_pixels_unique_offset+=1;
-            if previous16_pixels_unique_offset==32
-            {
-                for i in 0..=31
+                let color_check=curr_lengths.iter().any(|&x| x == 0);
+                let mut back_ref=0;
+
+
+
+                if prefix_2bits == PREFIX_BACK_REF && color_check
                 {
-                    previous16_pixels_unique[i]=previous16_pixels_unique[i+32];
+                    back_ref = bitreader.read_bitsu8(5)? as usize;        
                 }
 
-                previous16_pixels_unique_offset=0;
-            }
-        }
-
-        //get run length
-        if color_check 
-        {
-            prefix_2bits = bitreader.read_bitsu8(2)?;
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            //let dump_res=dump.next().unwrap().unwrap();
-
-
-            debug_assert!(dump[position]==output_vec[position],"expected: {}, output: {} at position {}, index: {}",dump[position],output_vec[position],position,px_i);
-            debug_assert!(dump[position+1]==output_vec[position+1],"expected: {}, output: {} at position {}, index: {}",dump[position+1],output_vec[position+1],position+1,px_i);
-            debug_assert!(dump[position+2]==output_vec[position+2],"expected: {}, output: {} at position {}, index: {}",dump[position+2],output_vec[position+2],position+2,px_i);
-
-        }
-            //read full run for 1 run type up to 3 times
-        if prefix_2bits == PREFIX_RUN
-        {
-            let mut run_prefix = bitreader.read_bitsu8(2)?;
-            let mut temp_curr_runcount: u8 = 0;
-            //let mut temp_curr_runcounts:[u8;3]=[0;3];                
-            //let mut temp_curr_runcount=0;
-            /*let mut pixel_run_length: usize = 1;
-            let mut temp_curr_runcount: u8 = 0;
-            
-            while prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_PIXEL_RUN
-            {
-                pixel_run_length += ( bitreader.read_bitsu8(4)? as usize ) << temp_curr_runcount;
-                prefix_2bits = bitreader.read_bitsu8(2)?;
-                if prefix_2bits == PREFIX_RUN
-                {
-                    run_prefix = bitreader.read_bitsu8(2)?;
-                }
-                temp_curr_runcount += 4;
-
-            }
-
-            if temp_curr_runcount >0
-            {
                 for i in 0..=2
                 {
-                    curr_lengths[i] = pixel_run_length;
-                }
-            }*/
-
-            for i in 0..=2
-            {
-                temp_curr_runcount=0;
-                while prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_RUNS[i]
-                {
-                    //why 36?
-                    //println!("pos: {}, r: {}",position,temp_curr_runcounts[0]);
-
-                    curr_lengths[i] +=(bitreader.read_bitsu8(3)? as usize) << temp_curr_runcount;
-                    prefix_2bits = bitreader.read_bitsu8(2)?;
-                    if prefix_2bits == PREFIX_RUN
+                    if curr_lengths[i] > 0
                     {
-                        run_prefix = bitreader.read_bitsu8(2)?;
+                        curr_lengths[i] -= 1;
+                        //println!("position: {}"position);
+                        output_vec[position+i]=output_vec[prev_position+i];
                     }
-                    temp_curr_runcount += 3;
-                }                   
-                           
-                if temp_curr_runcount > 0
-                {
-                    curr_lengths[i] += 1;
+                    else
+                    {
+                        if prefix_2bits==PREFIX_BACK_REF
+                        {
+                            output_vec[position+i]=previous16_pixels_unique[previous16_pixels_unique_offset+back_ref][i];
+                        }
+                        else
+                        {
+                            //if prefix_2bits==PREFIX_RGB
+                            //{
+                                output_vec[position+i]=bitreader.read_bitsu8(8)?;
+                                
+
+                            //}
+                        }
+                    }
                 }
+
+                
+                if prefix_2bits==PREFIX_RGB&&color_check
+                {
+                    previous16_pixels_unique[previous16_pixels_unique_offset+32]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
+                    previous16_pixels_unique_offset+=1;
+                    if previous16_pixels_unique_offset==32
+                    {
+                        for i in 0..=31
+                        {
+                            previous16_pixels_unique[i]=previous16_pixels_unique[i+32];
+                        }
+
+                        previous16_pixels_unique_offset=0;
+                    }
+                }
+
+                //get run length
+                if color_check 
+                {
+                    prefix_2bits = bitreader.read_bitsu8(2)?;
+                }
+
+                #[cfg(debug_assertions)]
+                {
+                    //let dump_res=dump.next().unwrap().unwrap();
+
+
+                    debug_assert!(dump[position]==output_vec[position],"expected: {}, output: {} at position {}, index: {}",dump[position],output_vec[position],position,i);
+                    debug_assert!(dump[position+1]==output_vec[position+1],"expected: {}, output: {} at position {}, index: {}",dump[position+1],output_vec[position+1],position+1,i);
+                    debug_assert!(dump[position+2]==output_vec[position+2],"expected: {}, output: {} at position {}, index: {}",dump[position+2],output_vec[position+2],position+2,i);
+
+                }
+                    //read full run for 1 run type up to 3 times
+                if prefix_2bits == PREFIX_RUN
+                {
+                    let mut run_prefix = bitreader.read_bitsu8(2)?;
+                    let mut temp_curr_runcount: u8 = 0;
+                    //let mut temp_curr_runcounts:[u8;3]=[0;3];                
+                    //let mut temp_curr_runcount=0;
+                    /*let mut pixel_run_length: usize = 1;
+                    let mut temp_curr_runcount: u8 = 0;
+                    
+                    while prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_PIXEL_RUN
+                    {
+                        pixel_run_length += ( bitreader.read_bitsu8(4)? as usize ) << temp_curr_runcount;
+                        prefix_2bits = bitreader.read_bitsu8(2)?;
+                        if prefix_2bits == PREFIX_RUN
+                        {
+                            run_prefix = bitreader.read_bitsu8(2)?;
+                        }
+                        temp_curr_runcount += 4;
+
+                    }
+
+                    if temp_curr_runcount >0
+                    {
+                        for i in 0..=2
+                        {
+                            curr_lengths[i] = pixel_run_length;
+                        }
+                    }*/
+
+                    for i in 0..=2
+                    {
+                        temp_curr_runcount=0;
+                        while prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_RUNS[i]
+                        {
+                            //why 36?
+                            //println!("pos: {}, r: {}",position,temp_curr_runcounts[0]);
+
+                            curr_lengths[i] +=(bitreader.read_bitsu8(3)? as usize) << temp_curr_runcount;
+                            prefix_2bits = bitreader.read_bitsu8(2)?;
+                            if prefix_2bits == PREFIX_RUN
+                            {
+                                run_prefix = bitreader.read_bitsu8(2)?;
+                            }
+                            temp_curr_runcount += 3;
+                        }                   
+                                
+                        if temp_curr_runcount > 0
+                        {
+                            curr_lengths[i] += 1;
+                        }
+                    }
+                }
+         
+            
+
             }
         }
-         
-        //TODO add pixel here or at beginning pos calc?  
-        //position += channels;
-        //}
-
-        
-        //TODO output red run,green run,blue run
-
     }
     //bitreader.read_bits(8)?;
     println!("{}", now.elapsed().as_millis());

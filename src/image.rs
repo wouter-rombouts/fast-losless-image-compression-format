@@ -1,17 +1,19 @@
 
 
-pub(crate) const SUBBLOCK_HEIGHT_MAX: usize = 7;
-pub(crate) const SUBBLOCK_WIDTH_MAX: usize = 9;
+pub(crate) const SUBBLOCK_HEIGHT_MAX: usize = 5;
+pub(crate) const SUBBLOCK_WIDTH_MAX: usize = 5;
 pub struct Image {
     pub width: usize,
     pub height: usize,
     pub channels: u8,
-    height_subblock_leftover: usize,
-    width_subblock_leftover: usize,
+    pub height_subblock_leftover: usize,
+    pub width_subblock_leftover: usize,
     image_size:usize,
-    width_block_size:usize,
+    pub width_block_size:usize,
     width_minus_leftover:usize,
-    height_minus_leftover_times_width:usize
+    height_minus_leftover_times_width:usize,
+    pub subblocks_in_width:usize,
+    pub subblocks_in_height:usize
 
 }
 
@@ -34,7 +36,9 @@ impl Image
             image_size:width*height,
             width_block_size:width*SUBBLOCK_HEIGHT_MAX,
             width_minus_leftover:width-width%SUBBLOCK_WIDTH_MAX,
-            height_minus_leftover_times_width:(height-height%SUBBLOCK_HEIGHT_MAX)*width
+            height_minus_leftover_times_width:(height-height%SUBBLOCK_HEIGHT_MAX)*width,
+            subblocks_in_width: width/SUBBLOCK_WIDTH_MAX,
+            subblocks_in_height: height/SUBBLOCK_HEIGHT_MAX
         }
     }
 
