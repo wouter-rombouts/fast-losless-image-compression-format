@@ -343,17 +343,17 @@ pub fn decode<R: io::Read>(
     let mut buf = [0; 4];
     image_reader.read(&mut buf)?;
     let width = u32::from_be_bytes(buf);
-    println!("width:{}", width);
+    dbg!(width);
     image_reader.read(&mut buf)?;
     let height = u32::from_be_bytes(buf);
 
-    println!("height:{}", height);
+    dbg!( height);
     
     let height = height as usize;
     let mut channels_buf = [0; 1];
     image_reader.read(&mut channels_buf)?;
     let channels = u8::from_be_bytes(channels_buf) as usize;
-    println!("channels:{}", channels);
+    dbg!( channels);
     //let bitreader = BitReader::<R, BigEndian>::new(reader);
     let image_size = width as usize * height as usize * channels;
     let image =Image::new(
@@ -362,7 +362,7 @@ pub fn decode<R: io::Read>(
          channels as u8,
     );
     let mut position = 0;
-    println!("image_size:{}", image_size);
+    dbg!(image_size);
     *output_vec = Vec::with_capacity(image_size);
     unsafe
     {
