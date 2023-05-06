@@ -92,20 +92,10 @@ impl Image
 mod tests {
     #[test]
     fn check_positions() {
-        //let image = crate::image::Image{width:4000,height:3000,channels:3};
 
-        /*debug_assert_eq!(image.calc_pos_from(126),18);
-        debug_assert_eq!(image.calc_pos_from(9),4008);
+        let image = crate::image::Image::new(4000,3000,3);
+        debug_assert_eq!(image.calc_pos_from(140250),140050);
 
-        debug_assert_eq!(image.calc_pos_from(28000),28000);
-        debug_assert_eq!(image.calc_pos_from(27999),27999);
-        debug_assert_eq!(image.calc_pos_from(27996),27996);
-        debug_assert_eq!(image.calc_pos_from(27992),23999);
-        debug_assert_eq!(image.calc_pos_from(27995),23996);
-        debug_assert_eq!(image.calc_pos_from(11999996),11999999);
-        debug_assert_eq!(image.calc_pos_from(140353),156047);
-        debug_assert_eq!(image.calc_pos_from(140672),468288/3);
-        debug_assert_eq!(image.calc_pos_from(140671),468285/3);*/
         
     }    
 
