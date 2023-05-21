@@ -9,6 +9,12 @@ pub struct Bitreader<'a, R : io::Read>
 //TODO version for u8 and 32
 impl<R: io::Read> Bitreader<'_,R>
 {
+    pub fn new( reader : &mut R)
+    ->Bitreader<'_,R>
+    {
+        Bitreader{ reader, bit_offset : 32, cache : 0}
+    }
+
     pub fn read_bits3bytes
     (
             &mut self

@@ -81,6 +81,16 @@ impl<W:Write> EncodedOutput<'_,W>
 
         for el in &mut *self.data_vec
         {
+            /*dbg!(symbols_lookup[*el as usize].1);
+            dbg!(symbols_lookup[*el as usize].0 as u32);
+            dbg!(self.bitwriter.bit_offset);
+            dbg!(self.bitwriter.cache);*/
+            /*if *el==30
+            {
+                dbg!(*el);
+                dbg!(symbols_lookup[*el as usize]);
+                dbg!(amount_of_bits_per_symbol[30]);
+            }*/
             self.bitwriter.write_24bits(symbols_lookup[*el as usize].1, symbols_lookup[*el as usize].0 as u32)?;
         }
         self.bitwriter.writer.write_all(&[(self.bitwriter.cache>>24).try_into().unwrap()])?;
@@ -135,17 +145,12 @@ impl<R:Read> DecodeInput<'_,R>
     -> Result<u8, io::Error>
     {
         //TODO encoder leaf nodes have highest values?
-        let newcode=self.bitreader.read_24bits_noclear(self.max_aob)?;
-        for lookupitem in self.symbols_lookup.iter()
-        {
-            if newcode >= lookupitem.code as u32
-            {
-                self.bitreader.read_24bits(lookupitem.aob)?;
-                return Ok(lookupitem.symbol)
-            }
-        }
-        //value not found in list of possible codes
-        Err(io::Error::from(io::ErrorKind::NotFound))
+        let newcode=self.bitreader.read_24bits_noclear(self.max_aob)?as usize;
+        let ret:&LookupItem=&self.symbols_lookup[self.symbols_lookup.partition_point(|lookupitem| newcode < lookupitem.code)];
+        //(iter().find(|&lookupitem| newcode >= lookupitem.code).unwrap();
+
+        self.bitreader.cache=self.bitreader.cache&(1<<(self.bitreader.bit_offset-ret.aob)-1);
+        Ok(ret.symbol)
         //TODO put back leftover bits
     }
 }
@@ -217,7 +222,7 @@ pub fn amount_of_bits_to_bcodes( amount_of_bits_per_symbol : &[u8;256])
             current_code+=1;
         }
         //invert result so smallest aob gives highest bitshifted values in decoder(=faster)
-        final_symbol_lookup[symbol].0=2<<(*amount_of_bits)-current_code;
+        final_symbol_lookup[symbol].0=(1<<(*amount_of_bits))-current_code-1;
         final_symbol_lookup[symbol].1=*amount_of_bits;
 
         //update current_code
@@ -235,19 +240,41 @@ mod tests {
     #[test]
     fn check_basic_encoding()
     {
+        //initialize
         let occurrences=[0;256];
         
         let mut output_vec : Vec<u8> = Vec::new();
         let mut encoder = super::EncodedOutput{ symbols : occurrences,
-                                                data_vec : &mut Vec::<u8>::with_capacity(256000),
+                                                data_vec : &mut Vec::<u8>::with_capacity(2560000),
                                                 bitwriter : crate::bitwriter::Bitwriter::new(&mut output_vec) };
+        //add data
+        let now = std::time::Instant::now();
         for i in 0..=255
         {
-            for _j in 0..1000
+            for _j in 0..10000
             {
                 encoder.add_symbolu8(i);
             }
         }
+        //encode
+        encoder.to_encoded_output().unwrap();
+        println!("encoder speed: {}", now.elapsed().as_millis());
+        //read
+        dbg!(output_vec.len());
+        let mut binding = output_vec.as_slice();
+        let mut decoder = super::DecodeInput{ bitreader : crate::bitreader::Bitreader::new( &mut binding ),
+                                              symbols_lookup : Vec::new(),
+                                              max_aob : 0 };
+        
+        let now = std::time::Instant::now();
+        decoder.read_header_into_tree().unwrap();
+        //TODO: opti decoder speed
+        for i in 0usize..2560000
+        {
+            let res =decoder.read_next_symbol().unwrap();
+            //debug_assert_eq!(res,(i/10000) as u8);
+        }
+        println!("decoder speed: {}", now.elapsed().as_millis());
         
         
     }    
