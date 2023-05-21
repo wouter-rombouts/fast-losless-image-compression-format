@@ -9,7 +9,12 @@ pub struct Bitwriter<'a, W : io::Write>
 
 impl<W: io::Write> Bitwriter<'_,W>
 {    
-    pub fn write_bits_u8
+    pub fn new<'a>(writer:&'a mut W)
+    ->Bitwriter<'a, W>
+    {
+        Bitwriter{ writer, bit_offset: 0, cache: 0 }
+    }
+    pub fn write_8bits
     (
             &mut self,
        amount_of_bits : u8,
@@ -29,7 +34,7 @@ impl<W: io::Write> Bitwriter<'_,W>
         Ok(())
     }
     
-    pub fn write_24bits
+    pub fn write_24bits_exact
     (
             &mut self,
                 value : u32
@@ -46,6 +51,26 @@ impl<W: io::Write> Bitwriter<'_,W>
         self.cache = self.cache<<24;
         Ok(())
     }
+
+    pub fn write_24bits
+    (
+            &mut self,
+       amount_of_bits : u8,
+                value : u32
+    )
+    -> std::io::Result<()>
+    {
+        self.bit_offset+= amount_of_bits;
+        self.cache+= value<<( 32-self.bit_offset );
+        //write cache to buffer
+        while self.bit_offset >= 8
+        {
+            self.writer.write_all(&[(self.cache>>24) as u8])?;
+            self.bit_offset -= 8;
+            self.cache = self.cache<<8;
+        }
+        Ok(())
+    }
 }
 
 mod tests {
@@ -53,14 +78,14 @@ mod tests {
     fn check_writer() {
         let mut my_output= Vec::new();
         let mut myreader = super::Bitwriter{writer:&mut my_output,bit_offset:0,cache:0};
-        let test = myreader.write_bits_u8(2,3).unwrap();
+        let test = myreader.write_8bits(2,3).unwrap();
         
         //debug_assert_eq!(*my_output.get(0).unwrap(),0b0000_0011);
-        let test = myreader.write_bits_u8(2,3).unwrap();
+        let test = myreader.write_8bits(2,3).unwrap();
         //debug_assert_eq!(*my_output.get(0).unwrap(),0b0000_1111);
-        let test = myreader.write_bits_u8(2,3).unwrap();
+        let test = myreader.write_8bits(2,3).unwrap();
         //debug_assert_eq!(*my_output.get(0).unwrap(),0b0011_1111);
-        let test = myreader.write_bits_u8(2,0).unwrap();
+        let test = myreader.write_8bits(2,0).unwrap();
         debug_assert_eq!(*my_output.get(0).unwrap(),0b1111_1100);
     }
 }

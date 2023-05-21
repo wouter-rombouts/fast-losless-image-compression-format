@@ -1,15 +1,16 @@
 const NICE: &[u8] = "nice".as_bytes();
 use crate::image::{Image, self};
 use std::{time::Instant, *};
+use crate::hfe::EncodedOutput;
 
 use crate::{bitreader::Bitreader, bitwriter::Bitwriter};
-pub(crate) const PREFIX_RUN: u8 = 0b00;
-pub(crate) const PREFIX_RED_RUN: u8 = 0b0010;
-pub(crate) const PREFIX_GREEN_RUN: u8 = 0b0001;
-pub(crate) const PREFIX_BLUE_RUN: u8 = 0b0000;
-pub(crate) const PREFIX_RGB: u8 = 0b01;
-pub(crate) const PREFIX_BACK_REF: u8 = 0b0011;
-pub(crate) const PREFIX_COLOR_LUMA: u8 = 0b1;
+pub(crate) const PREFIX_RUN: u8 = 3;
+pub(crate) const PREFIX_RED_RUN: u8 = 4;
+pub(crate) const PREFIX_GREEN_RUN: u8 = 5;
+pub(crate) const PREFIX_BLUE_RUN: u8 = 6;
+pub(crate) const PREFIX_RGB: u8 = 0;
+pub(crate) const PREFIX_BACK_REF: u8 = 2;
+pub(crate) const PREFIX_COLOR_LUMA: u8 = 1;
 const PREFIX_RUNS:[u8;3]=[PREFIX_RED_RUN,PREFIX_GREEN_RUN,PREFIX_BLUE_RUN];
 
 pub fn encode<W: io::Write>(
@@ -39,15 +40,10 @@ pub fn encode<W: io::Write>(
     //write channels outputted
     output_writer.write_all(&[channels_out])?;
     let image_size = image_header.height as usize * image_header.width as usize * channels;
-    let mut bitwriter = Bitwriter {
-        writer: output_writer,
-        bit_offset: 0,
-        cache: 0,
-    };
-    //generate lookup table for 16 backref
-    /*let lookup_16 = [channels,channels+width*channels,width*channels,width*channels-channels,
-    2*channels,2*channels+width*channels,2*channels+width*channels*2,channels+width*channels*2,width*channels*2,width*channels*2-channels,width*channels*2-2*channels,
-    3*channels,3*channels+width*channels,3*channels+width*channels*2,3*channels+width*channels*3,2*channels+width*channels*3];*/
+    //pre entropy encoding and after output vector
+    let mut data =EncodedOutput{ symbols:[0;256],
+                                 data_vec : &mut Vec::<u8>::with_capacity(image_size),
+                                bitwriter:Bitwriter::new(output_writer)};
 
     //TODO fill in with most common colors
     //16 size, with 16 spares
@@ -61,7 +57,7 @@ pub fn encode<W: io::Write>(
     let mut run_count_blue = 1;
     let mut back_ref_cntr = 0;
     let mut rgb_cntr = 0;
-    let mut run_cntr=00;
+    let mut run_cntr=0;
     let mut luma_occurences=0;
     let mut red_pixel_run_amount=0;
     let mut run_occurrences=[0;8];
@@ -94,9 +90,9 @@ pub fn encode<W: io::Write>(
                 }
             }
             if ret_pos != 99
-            {         
-                bitwriter.write_bits_u8(4, PREFIX_BACK_REF)?;
-                bitwriter.write_bits_u8(5, ret_pos)?;
+            {
+                data.add_symbolu8(PREFIX_BACK_REF);
+                data.add_symbolu8(ret_pos);
                 back_ref_cntr+=1;
             }
             else
@@ -198,16 +194,14 @@ pub fn encode<W: io::Write>(
                 if position>0&&is_luma
                 {
                     //bitwriter.write_bits_u8(2, (dif_base+2) as u8)?;
-                    bitwriter.write_bits_u8(1, PREFIX_COLOR_LUMA)?;
-
-                    bitwriter.write_bits_u8(5, (first+16) as u8)?;
+                    data.add_symbolu8(PREFIX_COLOR_LUMA);
+                    data.add_symbolu8((first+16) as u8);
 
                     for i in 0..=2
                     {
                         if list_of_color_diffs[i]!=i16::MAX&&list_of_color_diffs[i]!=first
                         {
-                            
-                            bitwriter.write_bits_u8(4, (list_of_color_diffs[i]+8) as u8)?;
+                            data.add_symbolu8((list_of_color_diffs[i]+8) as u8);
                         }
                     }
                     
@@ -217,20 +211,21 @@ pub fn encode<W: io::Write>(
                 else
                 {
                     //write rgb
-                    bitwriter.write_bits_u8(2, PREFIX_RGB)?;
+                    data.add_symbolu8(PREFIX_RGB);
+
                     rgb_cntr+=1;
                     if run_count_red == 1
                     {
-                        bitwriter.write_bits_u8(8, input_bytes[position] )?;
+                        data.add_symbolu8(input_bytes[position]);
                     }        
                     if run_count_green == 1
                     {
-                        bitwriter.write_bits_u8(8, input_bytes[position + 1])?;
+                        data.add_symbolu8(input_bytes[position+1]);
 
                     }
                     if run_count_blue == 1
                     {
-                        bitwriter.write_bits_u8(8, input_bytes[position + 2])?;
+                        data.add_symbolu8(input_bytes[position+2]);
 
                     }
                 }
@@ -322,8 +317,10 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        bitwriter.write_bits_u8( 4, PREFIX_RED_RUN )?;
-                        bitwriter.write_bits_u8( ((red_run_length & 0b0000_0111)+1).try_into().unwrap(), 1  )?;
+                        
+                        data.add_symbolu8(PREFIX_RUN);
+                        data.add_symbolu8(PREFIX_RED_RUN);
+                        data.add_symbolu8((red_run_length & 0b0000_0111).try_into().unwrap());
                         run_occurrences[(red_run_length & 0b0000_0111)]+=1;
                         if red_run_length <8
                         {
@@ -359,8 +356,9 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        bitwriter.write_bits_u8( 4, PREFIX_GREEN_RUN )?;
-                        bitwriter.write_bits_u8( ((green_run_length & 0b0000_0111)+1).try_into().unwrap(), 1  )?;
+                        data.add_symbolu8(PREFIX_RUN);
+                        data.add_symbolu8(PREFIX_GREEN_RUN);
+                        data.add_symbolu8((green_run_length & 0b0000_0111).try_into().unwrap());
                         run_occurrences[(green_run_length & 0b0000_0111)]+=1;
                         if green_run_length <8
                         {
@@ -396,12 +394,9 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        bitwriter.write_bits_u8( 4, PREFIX_BLUE_RUN )?;
-                        if position == 468141
-                        {
-                            dbg!(((blue_run_length & 0b0000_0111)+1));
-                        }
-                        bitwriter.write_bits_u8( ((blue_run_length & 0b0000_0111)+1).try_into().unwrap(), 1  )?;
+                        data.add_symbolu8(PREFIX_RUN);
+                        data.add_symbolu8(PREFIX_BLUE_RUN);
+                        data.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap());
                         run_occurrences[(blue_run_length & 0b0000_0111)]+=1;
                         if blue_run_length <8
                         {
@@ -421,6 +416,14 @@ pub fn encode<W: io::Write>(
         //position = loop_index;
         
     }
+    //TODO merge into 1 output
+    dbg!(data.data_vec.len());
+
+    data.to_encoded_output()?;
+    dbg!(data.data_vec.len());
+    //handle in hfe
+    //output_writer.write_all(&data.data_vec)?;
+
     //}
     println!("back_ref_cntr: {}",back_ref_cntr);
     println!("rgb_cntr: {}",rgb_cntr);
@@ -430,7 +433,8 @@ pub fn encode<W: io::Write>(
     println!("run_occurrences:{:?}",run_occurrences);
     
      //not used, but to make the dceoder dosen't crash at the end
-    bitwriter.write_bits_u8(8, 255)?;
+     //output_writer.write_all(&[255])?;
+     
     //bitwriter.write_bits_u8( 8, 255 )?;
     //bitwriter.write_bits_u8( 8, 255 )?;
     //println!("{}", now.elapsed().as_millis());

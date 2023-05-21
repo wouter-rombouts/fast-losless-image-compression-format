@@ -1,38 +1,160 @@
 
-use std::{collections::BinaryHeap, cmp::Ordering};
-struct CodeListItem
-{ symbols : [u8]
+use std::{collections::BinaryHeap};
+use std::io::{self, Write, Read};
+use crate::bitreader::Bitreader;
+use crate::bitwriter::Bitwriter;
+pub struct EncodedOutput<'a,W:Write>
+{ pub symbols : [usize;256],
+  pub data_vec : &'a mut Vec<u8>,
+  pub bitwriter : Bitwriter<'a,W>
 }
-
-//occurs amount, amount of bits
-pub fn occurs_to_list_of_codes( mut occurrences : [ (usize,u8);256 ], total_length : &usize )
--> ()
+impl<W:Write> EncodedOutput<'_,W>
 {
+    pub fn add_symbolu8( &mut self, symbol : u8 )
+    {
+        self.data_vec.push(symbol);
+        self.symbols[symbol as usize]+=1;
+    }
 
- //calc amount of bits for occur
- loop
- { 
- }
+    pub fn add_symbolusize( &mut self, symbol : usize )
+    {
+        self.data_vec.push(symbol as u8);
+        self.symbols[symbol]+=1;
+    }
 
- 
- 
- //create list if not exists or create on beforehand 
- //calc code on base number(array number) + symbol offset(pos within inner array)
- //apply codes to data
- //convert to canonical and store codes
+    pub fn to_encoded_output( &mut self )
+
+    -> Result<(), io::Error>
+    {
+        
+
+        
+        //calculate amount of bits for each color value, based on (flattened) huffman tree.
+        //initialize 1 so no joining the last level which contains a lot of values in the symbols_under_node
+        let mut amount_of_bits_per_symbol : [u8;256]=[1;256];
+        let mut flat_tree = BinaryHeap::<TreeNode>::new();
+
+        for i in 0..self.symbols.len()
+        {
+            flat_tree.push(TreeNode{ occurrences_sum : self.symbols[i],
+                symbols_under_node : vec![i as u8] });
+        }
+
+        while flat_tree.len() > 2
+        {
+            let first = flat_tree.pop().unwrap();
+            let second = flat_tree.pop().unwrap();
+            let newnodeslist = [first.symbols_under_node,second.symbols_under_node].concat();
+            //store codes(=amounts of bits<8) in output,0-255
+            for el in newnodeslist.iter()
+            {
+                amount_of_bits_per_symbol[*el as usize]+=1;
+            }
+            flat_tree.push(TreeNode{ occurrences_sum : first.occurrences_sum+second.occurrences_sum,
+                                     symbols_under_node : newnodeslist})
+        }
+        //build binary tree with color values based on amount of bits, in numerical order( bottom-up)
+        //write amount of bits to output
+        let symbols_lookup = amount_of_bits_to_bcodes(&amount_of_bits_per_symbol);
+
+        let mut sumtot=0;
+        for i in 0..self.symbols.len()
+        {
+            sumtot+=self.symbols[i] * symbols_lookup[i].1 as usize;
+        }
+
+        dbg!(sumtot);
+        /*for i in 0..symbols_lookup.len()
+        {
+            dbg!(symbols_lookup[i].0);
+            dbg!(symbols_lookup[i].1);
+        }*/
+
+        //TODO write codes
+        let max_aob=*amount_of_bits_per_symbol.iter().max().unwrap();
+        self.bitwriter.write_8bits(5, max_aob)?;
+        
+        for el in amount_of_bits_per_symbol
+        {
+            self.bitwriter.write_8bits(max_aob.next_power_of_two().count_zeros() as u8, el)?;
+        }
+
+        for el in &mut *self.data_vec
+        {
+            self.bitwriter.write_24bits(symbols_lookup[*el as usize].1, symbols_lookup[*el as usize].0 as u32)?;
+        }
+        self.bitwriter.writer.write_all(&[(self.bitwriter.cache>>24).try_into().unwrap()])?;
+        //TODO test in vacuum
+
+        Ok(())
+    }
 }
-
-
-pub enum TreeNodeBranchOrLeaf
+#[derive(PartialEq,PartialOrd,Eq,Ord)]
+struct LookupItem
 {
-    Leaf(u8),
-    Branch((Box<TreeNode>,Box<TreeNode>))
-
+    code : usize,
+    symbol : u8,
+    aob : u8
 }
+pub struct DecodeInput<'a,R:Read>
+{
+    bitreader : Bitreader<'a,R>,
+    symbols_lookup : Vec<LookupItem>,
+
+    max_aob : u8
+}
+
+impl<R:Read> DecodeInput<'_,R>
+{
+    pub fn read_header_into_tree( &mut self )
+    -> Result<(), io::Error>
+    {
+        self.max_aob=self.bitreader.read_bitsu8(5)?;
+        let max_aob_bits = self.max_aob.next_power_of_two().count_zeros() as u8;
+        let mut list_of_aobs=[0u8;256];
+        for i in 0..256
+        {
+            list_of_aobs[i]=self.bitreader.read_bitsu8(max_aob_bits)?;
+        }
+        //v1.iter().copied().zip(v2.iter().copied()).collect()
+        self.symbols_lookup = amount_of_bits_to_bcodes(&list_of_aobs).iter().copied().zip(list_of_aobs.iter().copied()).map(|((a,b),c)|LookupItem{code:a,symbol:b,aob:c}).collect();
+        //bitshift codes
+        //add symbols and order by smallest aob,largest code value
+        for i in 0..(self.symbols_lookup.len())
+        {
+            self.symbols_lookup[i].code<<=(self.max_aob-self.symbols_lookup[i].symbol) as usize;
+            self.symbols_lookup[i].symbol=i as u8;
+        }
+        //new values: bitshifted code and the symbol
+        //sorted by bitshifted symbols, which is unique, so not sorted by symbol as .0 is never equal
+        self.symbols_lookup.sort_unstable_by(|a, b|b.cmp(a));
+        Ok(())
+    }
+
+    pub fn read_next_symbol( &mut self )
+    -> Result<u8, io::Error>
+    {
+        //TODO encoder leaf nodes have highest values?
+        let newcode=self.bitreader.read_24bits_noclear(self.max_aob)?;
+        for lookupitem in self.symbols_lookup.iter()
+        {
+            if newcode >= lookupitem.code as u32
+            {
+                self.bitreader.read_24bits(lookupitem.aob)?;
+                return Ok(lookupitem.symbol)
+            }
+        }
+        //value not found in list of possible codes
+        Err(io::Error::from(io::ErrorKind::NotFound))
+        //TODO put back leftover bits
+    }
+}
+
 pub struct TreeNode
 {
     pub occurrences_sum : usize,
-     pub branch_or_leaf : TreeNodeBranchOrLeaf
+    //if list empty then leaf node
+    pub symbols_under_node : Vec<u8>
 }
 
 impl PartialEq for TreeNode
@@ -65,145 +187,69 @@ impl Ord for TreeNode
         other.occurrences_sum.cmp(&self.occurrences_sum)
     }
 }
-pub struct HuffmanTree
-{
-    tree : BinaryHeap<TreeNode>
-}
-impl HuffmanTree
-{
-    pub fn new( occurrences : [usize;256]
-    )
-    ->HuffmanTree
-    {
-        let mut tree  = BinaryHeap::<TreeNode>::new();
-        for (i,occurrence) in occurrences.iter().enumerate()
-        {
-            tree.push(TreeNode{ occurrences_sum : *occurrence,
-                                 branch_or_leaf : TreeNodeBranchOrLeaf::Leaf(i as u8) });
-        }
-        HuffmanTree{tree}
-    }
 
-    pub fn list_of_nodes_to_tree( &mut self )
-    {
-        //get lowest occurences amount
-        //taking 2 and add 1 will result in the lowest value always existing
-        loop
-        {
-            let lowest = self.tree.pop().unwrap();
-            let second_lowest = self.tree.pop();
-            if let Some(second_value) = second_lowest
-            {
-                self.tree.push( TreeNode{ occurrences_sum : lowest.occurrences_sum+second_value.occurrences_sum,
-                                           branch_or_leaf : TreeNodeBranchOrLeaf::Branch( ( Box::new(lowest), 
-                                                                                            Box::new(second_value) ) ) } );
-            }
-            else
-            {
-                break;
-            }
-        }
 
-    }
+//function to be called in encoder+decoder
+pub fn amount_of_bits_to_bcodes( amount_of_bits_per_symbol : &[u8;256])
+//codes(+amount of bits, not needed can use same index as input to derive amount of bits )
+-> [(usize, u8); 256]
+{
+    //build btree based on aob in the order they appear(0-255)
+    //make sure minheap respects order of same aob, also order on actual color value?
+
+    let mut final_symbol_lookup=[(0usize,0u8);256];
+    let mut current_code=0;
     
-    fn node_to_amounts( &mut self, node : TreeNode, current_level : u8, symbol_and_amounts : &mut Vec::<(u8,u8)> )
+    let mut symbols_ordered:Vec<(usize,&u8)> = amount_of_bits_per_symbol.iter().enumerate().collect()/**/;
+    //sort by highest aob, and highest symmbol.
+    symbols_ordered.sort_by(|a,b|(b.1,b.0).cmp(&(a.1,a.0)));
+    let mut prev_aob=0;
+
+    for (symbol,amount_of_bits) in symbols_ordered
     {
+        if *amount_of_bits<prev_aob
+        {
+            current_code>>=prev_aob-*amount_of_bits;
+        }
+        //don't add in the first iteration of the loop
+        if prev_aob>0
+        {
+            current_code+=1;
+        }
+        //invert result so smallest aob gives highest bitshifted values in decoder(=faster)
+        final_symbol_lookup[symbol].0=2<<(*amount_of_bits)-current_code;
+        final_symbol_lookup[symbol].1=*amount_of_bits;
+
+        //update current_code
+        prev_aob=*amount_of_bits;
+    }
+    //use flattened tree and then added 0 or (1 bitshifted) to final codes for encoding
+    //performance diff with normal huffman tree???
+    //for decoding, build an actual huffman tree and use "match" to decide
+    //2 to the power aob can be used as value to build a huffman tree,although different codes can be the result, but the aob is same => same compression level.
+    final_symbol_lookup
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn check_basic_encoding()
+    {
+        let occurrences=[0;256];
         
-        match node.branch_or_leaf
+        let mut output_vec : Vec<u8> = Vec::new();
+        let mut encoder = super::EncodedOutput{ symbols : occurrences,
+                                                data_vec : &mut Vec::<u8>::with_capacity(256000),
+                                                bitwriter : crate::bitwriter::Bitwriter::new(&mut output_vec) };
+        for i in 0..=255
         {
-            TreeNodeBranchOrLeaf::Leaf(value) =>
+            for _j in 0..1000
             {
-                symbol_and_amounts.push((value,current_level));
-            },
-            TreeNodeBranchOrLeaf::Branch((new_node1, new_node2)) =>
-            {
-                self.node_to_amounts(*new_node1,current_level+1,symbol_and_amounts);
-                self.node_to_amounts(*new_node2,current_level+1,symbol_and_amounts);
+                encoder.add_symbolu8(i);
             }
         }
-    }
+        
+        
+    }    
 
-    pub fn tree_to_amounts( &mut self
-    )
-    -> Vec<(u8,u8)>
-    {
-        //amount of bits for this code, index is element
-        let mut symbol_and_amounts = Vec::<(u8,u8)>::with_capacity(256);
-        //huffman_codes=vec![0;256];
-        //let mut temp_bits = Vec::<u8>::with_capacity(44);
-        let root = self.tree.pop().unwrap();
-        self.node_to_amounts(root,0,&mut symbol_and_amounts);
-        //let tree_iter = self.tree.iter();
-
-
-        symbol_and_amounts
-    }
 }
-
-pub struct canonical_symbol_element
-{
-    amount : u8,
-    symbol : u8
-}
-
-//amount_of_bits: symbol and amount of bits
-pub fn amount_of_bits_to_codes(  amount_of_bits : &mut Vec<(u8,u8)>
-)
-//max bits and list of amount of bits and code
-->(u8,[(u8,u64);256])
-{
-    let mut ret = [(0,0);256];
-    //length and value
-    //re-order based on length, numerical codes stay the same
-    amount_of_bits.sort_by(|&a,&b|{
-        a.1.cmp(&b.1)
-    });
-    //first zero's, for most common symbol,position is value
-    ret[amount_of_bits[0].0 as usize]=(amount_of_bits[0].1,0);
-    //
-    let mut temp_num = 0u64;
-    for i in 1..256 
-    {   
-            temp_num+=1;
-            if amount_of_bits[i].1 != amount_of_bits[i-1].1
-            {
-                temp_num<<=1;
-            }
-        ret[amount_of_bits[i].0 as usize]=(amount_of_bits[i].1,temp_num);
-    }
-    (amount_of_bits[255].1,ret)
-}
-
-/*pub fn apply_huffman_codes_to_data( input_data : &Vec<u8>,
-                                         codes : &[(u8,u64);256],
-                                      data_out : &mut super::bitslice::BitVec
-)
-{
-    //make list of actual huffman codes based on the amount of bits
-    for byte in input_data
-    {
-        let mut amount_of_remaining_bits = codes[*byte as usize].0;
-        let mut divup = amount_of_remaining_bits/8;
-        if amount_of_remaining_bits%8>0{divup+=1;};
-        let mut curr_bit = 56/*/amount_of_remaining_bits/8*8*/;
-        //TODO process first byte, then loop over remaining bytes
-        let significant_bytes=&codes[*byte as usize].1.to_be_bytes()[((8-divup) as usize)..8];
-        for &byte_part in significant_bytes
-        {
-            
-            match curr_bit.cmp(&amount_of_remaining_bits) {
-                Ordering::Less => {
-                    
-                    data_out.insert_bits(amount_of_remaining_bits%8, byte_part);
-                },
-                Ordering::Greater => {
-
-                },
-                Ordering::Equal => {
-                    data_out.insert_bits(8, byte_part);
-                },
-            }
-            curr_bit-=8;
-        }
-    }
-}*/

@@ -45,6 +45,54 @@ impl<R: io::Read> Bitreader<'_,R>
         //println!("output: {}",(self.bit_offset));
         Ok(ret)
     }
+
+    pub fn read_24bits
+    (
+            &mut self,
+       amount_of_bits : u8
+    )
+    -> std::io::Result<u32>
+    {
+        //if we need to read more than what is available in the cache
+        
+        while amount_of_bits > 32 - self.bit_offset
+        {
+
+            let mut buffer =[0];
+            self.reader.read_exact(&mut buffer)?;
+            self.cache= buffer[0] as u32  + (self.cache<<8);
+            self.bit_offset-=8;
+
+        }
+        //move offset, but don't change the cache
+        let ret  =((self.cache<<self.bit_offset)>>(32-amount_of_bits)).try_into().unwrap();
+        self.bit_offset+=amount_of_bits;
+        //println!("output: {}",(self.bit_offset));
+        Ok(ret)
+    }
+
+    pub fn read_24bits_noclear
+    (
+            &mut self,
+       amount_of_bits : u8
+    )
+    -> std::io::Result<u32>
+    {
+        //if we need to read more than what is available in the cache
+        
+        while amount_of_bits > 32 - self.bit_offset
+        {
+
+            let mut buffer =[0];
+            self.reader.read_exact(&mut buffer)?;
+            self.cache= buffer[0] as u32  + (self.cache<<8);
+            self.bit_offset-=8;
+
+        }
+        let ret  =((self.cache<<self.bit_offset)>>(32-amount_of_bits)).try_into().unwrap();
+        //self.bit_offset+=amount_of_bits;
+        Ok(ret)
+    }
 }
 
 #[cfg(test)]
@@ -64,7 +112,7 @@ mod tests {
     }    
 
     #[test]
-    fn check_reader4() {
+    fn check_reader3() {
         let testreader = [252,215,250,249,248,247,246,245,244,243,242];
         let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0};
         let test = myreader.read_bits3bytes().unwrap();
@@ -73,5 +121,19 @@ mod tests {
         debug_assert_eq!(test.to_be_bytes()[1..=3],[249,248,247]);
         let test = myreader.read_bits3bytes().unwrap();
         debug_assert_eq!(test.to_be_bytes()[1..=3],[246,245,244]);
+    }
+    #[test]
+    fn check_reader24() {
+        let testreader = [252;6];
+        let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0};
+        let test = myreader.read_24bits(9).unwrap();
+        debug_assert_eq!(test,0b111111001);
+        let test = myreader.read_24bits_noclear(9).unwrap();
+        debug_assert_eq!(test,0b111110011);
+
+        let test = myreader.read_24bits(9).unwrap();
+        debug_assert_eq!(test,0b111110011);
+        let test = myreader.read_24bits(9).unwrap();
+        debug_assert_eq!(test,0b111100111);
     }
 }
