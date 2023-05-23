@@ -99,7 +99,7 @@ impl<W:Write> EncodedOutput<'_,W>
         Ok(())
     }
 }
-#[derive(PartialEq,PartialOrd,Eq,Ord)]
+#[derive(PartialEq,PartialOrd,Eq,Ord,Debug)]
 struct LookupItem
 {
     code : usize,
@@ -145,13 +145,12 @@ impl<R:Read> DecodeInput<'_,R>
     -> Result<u8, io::Error>
     {
         //TODO encoder leaf nodes have highest values?
-        let newcode=self.bitreader.read_24bits_noclear(self.max_aob)?as usize;
-        let ret:&LookupItem=&self.symbols_lookup[self.symbols_lookup.partition_point(|lookupitem| newcode < lookupitem.code)];
-        //(iter().find(|&lookupitem| newcode >= lookupitem.code).unwrap();
-
-        self.bitreader.cache=self.bitreader.cache&(1<<(self.bitreader.bit_offset-ret.aob)-1);
-        Ok(ret.symbol)
-        //TODO put back leftover bits
+        let newcode=self.bitreader.read_24bits_noclear(self.max_aob)as usize;
+        //let ret:&LookupItem=&self.symbols_lookup[self.symbols_lookup.partition_point(|lookupitem| newcode < lookupitem.code)];
+        //dbg!(self.bitreader.bit_offset);
+        Ok(&self.symbols_lookup[self.symbols_lookup.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {self.bitreader.bit_offset+=i.aob;i.symbol})
+        //self.bitreader.bit_offset+=ret.aob;
+        //Ok(ret.symbol)
     }
 }
 
@@ -251,13 +250,15 @@ mod tests {
         let now = std::time::Instant::now();
         for i in 0..=255
         {
-            for _j in 0..10000
+            for _j in 0..i*10
             {
-                encoder.add_symbolu8(i);
+                encoder.add_symbolusize(i);
             }
         }
         //encode
         encoder.to_encoded_output().unwrap();
+        let cache=encoder.bitwriter.cache.to_be_bytes();
+        output_vec.extend_from_slice(&cache[..]);
         println!("encoder speed: {}", now.elapsed().as_millis());
         //read
         dbg!(output_vec.len());
@@ -268,13 +269,21 @@ mod tests {
         
         let now = std::time::Instant::now();
         decoder.read_header_into_tree().unwrap();
+        //dbg!(decoder.symbols_lookup);
         //TODO: opti decoder speed
-        for i in 0usize..2560000
+        for i in 0usize..=255
         {
+            for _j in 0..i*10
+            {
+                /*dbg!(i);
+                dbg!(_j);*/
             let res =decoder.read_next_symbol().unwrap();
-            //debug_assert_eq!(res,(i/10000) as u8);
+            debug_assert_eq!(res,(i) as u8,"i:{}",i);
+            }
         }
         println!("decoder speed: {}", now.elapsed().as_millis());
+        
+        //TODO put back leftover bits
         
         
     }    

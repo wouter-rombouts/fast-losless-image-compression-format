@@ -764,7 +764,7 @@ pub fn decode<R: io::Read>(
                                     curr_lengths[i] += 1;
                                 }
                                 dbg!(position);
-                                dbg!(loopindex);
+                                //dbg!(loopindex);
                                 dbg!(curr_lengths[i]);
                                 dbg!(prefix_1bits);
                                 dbg!(prefix_2bits);

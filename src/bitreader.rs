@@ -60,44 +60,44 @@ impl<R: io::Read> Bitreader<'_,R>
     -> std::io::Result<u32>
     {
         //if we need to read more than what is available in the cache
-        
-        while amount_of_bits > 32 - self.bit_offset
+        let aob_rev = 32-amount_of_bits;
+        while self.bit_offset > aob_rev
         {
 
             let mut buffer =[0];
             self.reader.read_exact(&mut buffer)?;
-            self.cache= buffer[0] as u32  + (self.cache<<8);
             self.bit_offset-=8;
+            self.cache= buffer[0] as u32  + (self.cache<<8);
 
         }
-        //move offset, but don't change the cache
-        let ret  =((self.cache<<self.bit_offset)>>(32-amount_of_bits)).try_into().unwrap();
+        //move offset
         self.bit_offset+=amount_of_bits;
-        //println!("output: {}",(self.bit_offset));
-        Ok(ret)
+        Ok((self.cache<<self.bit_offset)>>aob_rev)
     }
 
+    
     pub fn read_24bits_noclear
     (
             &mut self,
        amount_of_bits : u8
     )
-    -> std::io::Result<u32>
+    -> u32
     {
         //if we need to read more than what is available in the cache
-        
-        while amount_of_bits > 32 - self.bit_offset
+        let aob_rev = 32-amount_of_bits;
+        while self.bit_offset > aob_rev
         {
 
             let mut buffer =[0];
-            self.reader.read_exact(&mut buffer)?;
-            self.cache= buffer[0] as u32  + (self.cache<<8);
+            self.reader.read_exact(&mut buffer).unwrap();
+            //self.reader.read(&mut buffer[..]).unwrap();
             self.bit_offset-=8;
+            self.cache=(self.cache<<8)+ buffer[0] as u32;
 
         }
-        let ret  =((self.cache<<self.bit_offset)>>(32-amount_of_bits)).try_into().unwrap();
+        //let ret  =;
         //self.bit_offset+=amount_of_bits;
-        Ok(ret)
+        (self.cache<<self.bit_offset)>>aob_rev
     }
 }
 
@@ -134,7 +134,7 @@ mod tests {
         let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0};
         let test = myreader.read_24bits(9).unwrap();
         debug_assert_eq!(test,0b111111001);
-        let test = myreader.read_24bits_noclear(9).unwrap();
+        let test = myreader.read_24bits_noclear(9);
         debug_assert_eq!(test,0b111110011);
 
         let test = myreader.read_24bits(9).unwrap();

@@ -71,6 +71,14 @@ impl<W: io::Write> Bitwriter<'_,W>
         }
         Ok(())
     }
+    pub fn get_cache
+    (
+        &mut self
+    )
+    -> u32
+    {
+        self.cache
+    }
 }
 
 mod tests {
