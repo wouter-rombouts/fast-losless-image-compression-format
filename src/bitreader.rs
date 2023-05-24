@@ -4,7 +4,8 @@ pub struct Bitreader<'a, R : io::Read>
 {
     pub reader : &'a  mut R,
     pub bit_offset : u8,
-    pub cache : u32
+    pub cache : u32,
+    buffer : [u8;1]
 }
 //TODO version for u8 and 32
 impl<R: io::Read> Bitreader<'_,R>
@@ -12,7 +13,7 @@ impl<R: io::Read> Bitreader<'_,R>
     pub fn new( reader : &mut R)
     ->Bitreader<'_,R>
     {
-        Bitreader{ reader, bit_offset : 32, cache : 0}
+        Bitreader{ reader, bit_offset : 32, cache : 0,buffer:[0]}
     }
 
     pub fn read_bits3bytes
@@ -57,22 +58,20 @@ impl<R: io::Read> Bitreader<'_,R>
             &mut self,
        amount_of_bits : u8
     )
-    -> std::io::Result<u32>
+    -> u32
     {
         //if we need to read more than what is available in the cache
         let aob_rev = 32-amount_of_bits;
         while self.bit_offset > aob_rev
         {
-
-            let mut buffer =[0];
-            self.reader.read_exact(&mut buffer)?;
+            self.reader.read_exact(&mut self.buffer).expect("error reading the io source");
             self.bit_offset-=8;
-            self.cache= buffer[0] as u32  + (self.cache<<8);
+            self.cache= self.buffer[0] as u32  + (self.cache<<8);
 
         }
         //move offset
         self.bit_offset+=amount_of_bits;
-        Ok((self.cache<<self.bit_offset)>>aob_rev)
+        (self.cache<<(self.bit_offset-amount_of_bits))>>aob_rev
     }
 
     
@@ -85,14 +84,23 @@ impl<R: io::Read> Bitreader<'_,R>
     {
         //if we need to read more than what is available in the cache
         let aob_rev = 32-amount_of_bits;
+
+        /*if self.bit_offset > aob_rev
+
+        {
+            let aobdiv8=(amount_of_bits/8)+1 ;
+            //let mut buffer =[0;4];
+            //TODO use VEC declared in struct
+            self.reader.read_exact(&mut self.buffer[(4-aobdiv8 as usize)..]).unwrap();
+            self.bit_offset-=8*aobdiv8;
+            self.cache=(self.cache<<(8*aobdiv8))+ self.buffer[3] as u32+((self.buffer[2]as u32)<<8) +((self.buffer[1] as u32)<<16)+((self.buffer[0] as u32)<<24);
+        }*/
         while self.bit_offset > aob_rev
         {
-
-            let mut buffer =[0];
-            self.reader.read_exact(&mut buffer).unwrap();
+            self.reader.read_exact(&mut self.buffer).expect("error reading the io source");
             //self.reader.read(&mut buffer[..]).unwrap();
             self.bit_offset-=8;
-            self.cache=(self.cache<<8)+ buffer[0] as u32;
+            self.cache=(self.cache<<8)+ self.buffer[0] as u32;
 
         }
         //let ret  =;
@@ -106,7 +114,8 @@ mod tests {
     #[test]
     fn check_reader() {
         let testreader = [252;6];
-        let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0};
+        let mut binding = &testreader[..];
+        let mut myreader = super::Bitreader::new(&mut binding);
         let test = myreader.read_bitsu8(2).unwrap();
         debug_assert_eq!(test,0b0000_0011);
         let test = myreader.read_bitsu8(2).unwrap();
@@ -120,7 +129,8 @@ mod tests {
     #[test]
     fn check_reader3() {
         let testreader = [252,215,250,249,248,247,246,245,244,243,242];
-        let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0};
+        let mut binding = &testreader[..];
+        let mut myreader = super::Bitreader::new(&mut binding);
         let test = myreader.read_bits3bytes().unwrap();
         debug_assert_eq!(test.to_be_bytes()[1..=3],[252,215,250]);
         let test = myreader.read_bits3bytes().unwrap();
@@ -131,15 +141,16 @@ mod tests {
     #[test]
     fn check_reader24() {
         let testreader = [252;6];
-        let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0};
-        let test = myreader.read_24bits(9).unwrap();
+        let mut myreader = super::Bitreader{reader:&mut &testreader[..],bit_offset:32,cache:0, buffer: [0] };
+
+        let test = myreader.read_24bits(9);
         debug_assert_eq!(test,0b111111001);
         let test = myreader.read_24bits_noclear(9);
         debug_assert_eq!(test,0b111110011);
 
-        let test = myreader.read_24bits(9).unwrap();
+        let test = myreader.read_24bits(9);
         debug_assert_eq!(test,0b111110011);
-        let test = myreader.read_24bits(9).unwrap();
+        let test = myreader.read_24bits(9);
         debug_assert_eq!(test,0b111100111);
     }
 }

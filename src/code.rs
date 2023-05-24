@@ -484,11 +484,7 @@ pub fn decode<R: io::Read>(
 
     dbg!(output_vec.len());
     //TODO write runs with array API
-    let mut bitreader = Bitreader {
-        reader: image_reader,
-        bit_offset: 32,
-        cache: 0,
-    };
+    let mut bitreader = Bitreader::new(image_reader);
     let mut prefix_1bits=bitreader.read_bitsu8(1)?;
     let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
     let width = width as usize;
