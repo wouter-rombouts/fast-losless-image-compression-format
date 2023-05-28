@@ -31,7 +31,7 @@ impl<W:Write> EncodedOutput<'_,W>
         
         //calculate amount of bits for each color value, based on (flattened) huffman tree.
         //initialize 1 so no joining the last level which contains a lot of values in the symbols_under_node
-        let mut amount_of_bits_per_symbol : Vec<u8>=vec![1u8;self.symbol_occurs.len()];
+        let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 1, code: 0 };self.symbol_occurs.len()];
         let mut flat_tree = BinaryHeap::<TreeNode>::new();
 
 
@@ -50,13 +50,13 @@ impl<W:Write> EncodedOutput<'_,W>
             //store codes(=amounts of bits<8) in output,0-255
             for el in treenode.symbols_under_node.iter()
             {
-                amount_of_bits_per_symbol[*el as usize]+=1;
+                bcodes[*el as usize].aob+=1;
             }
             flat_tree.push(treenode);
         }
         //build binary tree with color values based on amount of bits, in numerical order( bottom-up)
         //write amount of bits to output
-        let symbols_lookup = amount_of_bits_to_bcodes(&amount_of_bits_per_symbol);
+        amount_of_bits_to_bcodes(&mut bcodes);
         /*#[cfg(debug_assertions)]
         let mut sumtot=0;
         #[cfg(debug_assertions)]
@@ -68,17 +68,17 @@ impl<W:Write> EncodedOutput<'_,W>
         dbg!(sumtot);*/
 
         //TODO write codes
-        let max_aob=*amount_of_bits_per_symbol.iter().max().unwrap();
+        let max_aob=bcodes.iter().max().unwrap().aob;
         self.bitwriter.write_8bits(5, max_aob)?;
         
-        for el in amount_of_bits_per_symbol
+        for el in bcodes.iter()
         {
-            self.bitwriter.write_8bits(max_aob.next_power_of_two().count_zeros() as u8, el)?;
+            self.bitwriter.write_8bits(max_aob.next_power_of_two().count_zeros() as u8, el.aob)?;
         }
 
         for el in &mut *self.data_vec
         {
-            self.bitwriter.write_24bits(symbols_lookup[*el as usize].1, symbols_lookup[*el as usize].0 as u32)?;
+            self.bitwriter.write_24bits(bcodes[*el as usize].aob, bcodes[*el as usize].code as u32)?;
         }
         self.bitwriter.writer.write_all(&[(self.bitwriter.cache>>24).try_into().unwrap()])?;
         //TODO test in vacuum
@@ -88,7 +88,7 @@ impl<W:Write> EncodedOutput<'_,W>
 }
 
 
-#[derive(Clone)]
+#[derive(Clone,Ord,Eq,PartialEq,PartialOrd,Copy)]
 pub struct Bcode
 {
     pub aob : u8,
@@ -124,19 +124,21 @@ impl<R:Read> DecodeInput<'_,R>
     {
         self.max_aob=self.bitreader.read_bitsu8(5)?;
         let max_aob_bits = self.max_aob.next_power_of_two().count_zeros() as u8;
-        let mut list_of_aobs=vec![0u8;amount_of_symbols];
+
+        let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 0, code: 0 };amount_of_symbols];
         for i in 0..amount_of_symbols
         {
-            list_of_aobs[i]=self.bitreader.read_bitsu8(max_aob_bits)?;
+            bcodes[i].aob=self.bitreader.read_bitsu8(max_aob_bits)?;
         }
-        //v1.iter().copied().zip(v2.iter().copied()).collect()
         
         //bitshift codes
         //add symbols and order by smallest aob,largest code value
-        
-        for (i,code_symbol) in amount_of_bits_to_bcodes(&list_of_aobs).iter().enumerate()
+        amount_of_bits_to_bcodes(&mut bcodes);
+
+        self.symbols_lookup=Vec::with_capacity(amount_of_symbols);
+        for (i,code_symbol) in bcodes.iter().enumerate()
         {
-            self.symbols_lookup.push(LookupItem{ code: code_symbol.0<<(self.max_aob-list_of_aobs[i]) as usize, symbol: i as u8, aob: list_of_aobs[i] });
+            self.symbols_lookup.push(LookupItem{ code: code_symbol.code<<(self.max_aob-code_symbol.aob) as usize, symbol: i as u8, aob: code_symbol.aob });
         }
         //new values: bitshifted code and the symbol
         //sorted by bitshifted symbols, which is unique, so not sorted by symbol as .0 is never equal
@@ -192,26 +194,29 @@ impl Ord for TreeNode
 
 
 //function to be called in encoder+decoder
-pub fn amount_of_bits_to_bcodes( amount_of_bits_per_symbol : &Vec<u8>)
+pub fn amount_of_bits_to_bcodes( codes : &mut Vec<Bcode>)
 //codes(+amount of bits, not needed can use same index as input to derive amount of bits )
--> Vec<(usize, u8)>
 {
     //build btree based on aob in the order they appear(0-255)
     //make sure minheap respects order of same aob, also order on actual color value?
 
-    let mut final_symbol_lookup=vec![(0usize,0u8);amount_of_bits_per_symbol.len()];
+    //let mut final_symbol_lookup=vec![(0usize,0u8);amount_of_bits_per_symbol.len()];
     let mut current_code=0;
     
-    let mut symbols_ordered:Vec<(usize,&u8)> = amount_of_bits_per_symbol.iter().enumerate().collect()/**/;
+    let mut symbols_ordered:Vec<(usize,Bcode)>=Vec::with_capacity(codes.len());
+    for i in 0..codes.len()
+    {
+        symbols_ordered.push((i,codes[i]));
+    }
     //sort by highest aob, and highest symmbol.
-    symbols_ordered.sort_unstable_by(|a,b|(b.1,b.0).cmp(&(a.1,a.0)));
+    symbols_ordered.sort_unstable_by(|a,b|(b.1.aob,b.0).cmp(&(a.1.aob,a.0)));
     let mut prev_aob=0;
 
-    for (i, &(symbol,amount_of_bits)) in symbols_ordered.iter().enumerate()
+    for (symbol,bcode) in symbols_ordered.iter()
     {
-        if *amount_of_bits<prev_aob
+        if bcode.aob<prev_aob
         {
-            current_code>>=prev_aob-*amount_of_bits;
+            current_code>>=prev_aob-bcode.aob;
         }
         //don't add in the first iteration of the loop
         if prev_aob>0
@@ -219,17 +224,17 @@ pub fn amount_of_bits_to_bcodes( amount_of_bits_per_symbol : &Vec<u8>)
             current_code+=1;
         }
         //invert result so smallest aob gives highest bitshifted values in decoder(=faster)
-        final_symbol_lookup[symbol].0=(1<<(*amount_of_bits))-current_code-1;
-        final_symbol_lookup[symbol].1=*amount_of_bits;
+        codes[*symbol].code=(1<<(bcode.aob))-current_code-1;
+        //codes[symbol].aob=bcode.aob;
 
         //update current_code
-        prev_aob=*amount_of_bits;
+        prev_aob=bcode.aob;
     }
     //use flattened tree and then added 0 or (1 bitshifted) to final codes for encoding
     //performance diff with normal huffman tree???
     //for decoding, build an actual huffman tree and use "match" to decide
     //2 to the power aob can be used as value to build a huffman tree,although different codes can be the result, but the aob is same => same compression level.
-    final_symbol_lookup
+    
 }
 
 #[cfg(test)]
