@@ -4,7 +4,7 @@ use std::io::{self, Write, Read};
 use crate::bitreader::Bitreader;
 use crate::bitwriter::Bitwriter;
 pub struct EncodedOutput<'a,W:Write>
-{ pub symbols : [usize;256],
+{ pub symbol_occurs : Box<[usize]>,
   pub data_vec : &'a mut Vec<u8>,
   pub bitwriter : Bitwriter<'a,W>
 }
@@ -13,13 +13,13 @@ impl<W:Write> EncodedOutput<'_,W>
     pub fn add_symbolu8( &mut self, symbol : u8 )
     {
         self.data_vec.push(symbol);
-        self.symbols[symbol as usize]+=1;
+        self.symbol_occurs[symbol as usize]+=1;
     }
 
     pub fn add_symbolusize( &mut self, symbol : usize )
     {
         self.data_vec.push(symbol as u8);
-        self.symbols[symbol]+=1;
+        self.symbol_occurs[symbol]+=1;
     }
 
     pub fn to_encoded_output( &mut self )
@@ -31,44 +31,41 @@ impl<W:Write> EncodedOutput<'_,W>
         
         //calculate amount of bits for each color value, based on (flattened) huffman tree.
         //initialize 1 so no joining the last level which contains a lot of values in the symbols_under_node
-        let mut amount_of_bits_per_symbol : [u8;256]=[1;256];
+        let mut amount_of_bits_per_symbol : Vec<u8>=vec![1u8;self.symbol_occurs.len()];
         let mut flat_tree = BinaryHeap::<TreeNode>::new();
 
-        for i in 0..self.symbols.len()
+
+        for i in 0..self.symbol_occurs.len()
         {
-            flat_tree.push(TreeNode{ occurrences_sum : self.symbols[i],
-                symbols_under_node : vec![i as u8] });
+            flat_tree.push(TreeNode{ occurrences_sum : self.symbol_occurs[i],
+                                     symbols_under_node : vec![i as u8]});
         }
 
         while flat_tree.len() > 2
         {
             let first = flat_tree.pop().unwrap();
             let second = flat_tree.pop().unwrap();
-            let newnodeslist = [first.symbols_under_node,second.symbols_under_node].concat();
+            let treenode=TreeNode{ occurrences_sum : first.occurrences_sum + second.occurrences_sum,
+                                   symbols_under_node : [first.symbols_under_node, second.symbols_under_node].concat()};
             //store codes(=amounts of bits<8) in output,0-255
-            for el in newnodeslist.iter()
+            for el in treenode.symbols_under_node.iter()
             {
                 amount_of_bits_per_symbol[*el as usize]+=1;
             }
-            flat_tree.push(TreeNode{ occurrences_sum : first.occurrences_sum+second.occurrences_sum,
-                                     symbols_under_node : newnodeslist})
+            flat_tree.push(treenode);
         }
         //build binary tree with color values based on amount of bits, in numerical order( bottom-up)
         //write amount of bits to output
         let symbols_lookup = amount_of_bits_to_bcodes(&amount_of_bits_per_symbol);
-
+        /*#[cfg(debug_assertions)]
         let mut sumtot=0;
-        for i in 0..self.symbols.len()
+        #[cfg(debug_assertions)]
+        for i in 0..self.symbol_occurs.len()
         {
-            sumtot+=self.symbols[i] * symbols_lookup[i].1 as usize;
+            sumtot+=self.symbol_occurs[i] * symbols_lookup[i].1 as usize;
         }
 
-        dbg!(sumtot);
-        /*for i in 0..symbols_lookup.len()
-        {
-            dbg!(symbols_lookup[i].0);
-            dbg!(symbols_lookup[i].1);
-        }*/
+        dbg!(sumtot);*/
 
         //TODO write codes
         let max_aob=*amount_of_bits_per_symbol.iter().max().unwrap();
@@ -81,16 +78,6 @@ impl<W:Write> EncodedOutput<'_,W>
 
         for el in &mut *self.data_vec
         {
-            /*dbg!(symbols_lookup[*el as usize].1);
-            dbg!(symbols_lookup[*el as usize].0 as u32);
-            dbg!(self.bitwriter.bit_offset);
-            dbg!(self.bitwriter.cache);*/
-            /*if *el==30
-            {
-                dbg!(*el);
-                dbg!(symbols_lookup[*el as usize]);
-                dbg!(amount_of_bits_per_symbol[30]);
-            }*/
             self.bitwriter.write_24bits(symbols_lookup[*el as usize].1, symbols_lookup[*el as usize].0 as u32)?;
         }
         self.bitwriter.writer.write_all(&[(self.bitwriter.cache>>24).try_into().unwrap()])?;
@@ -98,6 +85,15 @@ impl<W:Write> EncodedOutput<'_,W>
 
         Ok(())
     }
+}
+
+
+#[derive(Clone)]
+pub struct Bcode
+{
+    pub aob : u8,
+    pub code : usize
+
 }
 #[derive(PartialEq,PartialOrd,Eq,Ord,Debug)]
 pub struct LookupItem
@@ -123,24 +119,24 @@ impl<R:Read> DecodeInput<'_,R>
         DecodeInput{ bitreader, symbols_lookup:Vec::new(), max_aob:0}
     }
 
-    pub fn read_header_into_tree( &mut self )
+    pub fn read_header_into_tree( &mut self, amount_of_symbols : usize )
     -> Result<(), io::Error>
     {
         self.max_aob=self.bitreader.read_bitsu8(5)?;
         let max_aob_bits = self.max_aob.next_power_of_two().count_zeros() as u8;
-        let mut list_of_aobs=[0u8;256];
-        for i in 0..256
+        let mut list_of_aobs=vec![0u8;amount_of_symbols];
+        for i in 0..amount_of_symbols
         {
             list_of_aobs[i]=self.bitreader.read_bitsu8(max_aob_bits)?;
         }
         //v1.iter().copied().zip(v2.iter().copied()).collect()
-        self.symbols_lookup = amount_of_bits_to_bcodes(&list_of_aobs).iter().copied().zip(list_of_aobs.iter().copied()).map(|((a,b),c)|LookupItem{code:a,symbol:b,aob:c}).collect();
+        
         //bitshift codes
         //add symbols and order by smallest aob,largest code value
-        for i in 0..(self.symbols_lookup.len())
+        
+        for (i,code_symbol) in amount_of_bits_to_bcodes(&list_of_aobs).iter().enumerate()
         {
-            self.symbols_lookup[i].code<<=(self.max_aob-self.symbols_lookup[i].symbol) as usize;
-            self.symbols_lookup[i].symbol=i as u8;
+            self.symbols_lookup.push(LookupItem{ code: code_symbol.0<<(self.max_aob-list_of_aobs[i]) as usize, symbol: i as u8, aob: list_of_aobs[i] });
         }
         //new values: bitshifted code and the symbol
         //sorted by bitshifted symbols, which is unique, so not sorted by symbol as .0 is never equal
@@ -196,22 +192,22 @@ impl Ord for TreeNode
 
 
 //function to be called in encoder+decoder
-pub fn amount_of_bits_to_bcodes( amount_of_bits_per_symbol : &[u8;256])
+pub fn amount_of_bits_to_bcodes( amount_of_bits_per_symbol : &Vec<u8>)
 //codes(+amount of bits, not needed can use same index as input to derive amount of bits )
--> [(usize, u8); 256]
+-> Vec<(usize, u8)>
 {
     //build btree based on aob in the order they appear(0-255)
     //make sure minheap respects order of same aob, also order on actual color value?
 
-    let mut final_symbol_lookup=[(0usize,0u8);256];
+    let mut final_symbol_lookup=vec![(0usize,0u8);amount_of_bits_per_symbol.len()];
     let mut current_code=0;
     
     let mut symbols_ordered:Vec<(usize,&u8)> = amount_of_bits_per_symbol.iter().enumerate().collect()/**/;
     //sort by highest aob, and highest symmbol.
-    symbols_ordered.sort_by(|a,b|(b.1,b.0).cmp(&(a.1,a.0)));
+    symbols_ordered.sort_unstable_by(|a,b|(b.1,b.0).cmp(&(a.1,a.0)));
     let mut prev_aob=0;
 
-    for (symbol,amount_of_bits) in symbols_ordered
+    for (i, &(symbol,amount_of_bits)) in symbols_ordered.iter().enumerate()
     {
         if *amount_of_bits<prev_aob
         {
@@ -242,15 +238,16 @@ mod tests {
     fn check_basic_encoding()
     {
         //initialize
-        let occurrences=[0;256];
+        const SIZE_ARR:usize=256;
+        let occurrences=Box::new([0usize;SIZE_ARR]);
         
         let mut output_vec : Vec<u8> = Vec::new();
-        let mut encoder = super::EncodedOutput{ symbols : occurrences,
-                                                data_vec : &mut Vec::<u8>::with_capacity(2560000),
+        let mut encoder = super::EncodedOutput{ symbol_occurs : occurrences,
+                                                data_vec : &mut Vec::<u8>::with_capacity(SIZE_ARR*1000),
                                                 bitwriter : crate::bitwriter::Bitwriter::new(&mut output_vec) };
         //add data
         let now = std::time::Instant::now();
-        for i in 0..=255
+        for i in 0..SIZE_ARR
         {
             for _j in 0..i*10
             {
@@ -268,10 +265,10 @@ mod tests {
         let mut decoder = super::DecodeInput::new(  crate::bitreader::Bitreader::new( &mut binding ));
         
         let now = std::time::Instant::now();
-        decoder.read_header_into_tree().unwrap();
+        decoder.read_header_into_tree(SIZE_ARR).unwrap();
         //dbg!(decoder.symbols_lookup);
         //TODO: opti decoder speed
-        for i in 0usize..=255
+        for i in 0usize..SIZE_ARR
         {
             for _j in 0..i*10
             {

@@ -41,7 +41,7 @@ pub fn encode<W: io::Write>(
     output_writer.write_all(&[channels_out])?;
     let image_size = image_header.height as usize * image_header.width as usize * channels;
     //pre entropy encoding and after output vector
-    let mut data =EncodedOutput{ symbols:[0;256],
+    let mut data =EncodedOutput{ symbol_occurs:Box::new([0usize;256]),
                                  data_vec : &mut Vec::<u8>::with_capacity(image_size),
                                 bitwriter:Bitwriter::new(output_writer)};
 
@@ -513,7 +513,7 @@ pub fn decode<R: io::Read>(
     //TODO push output to Vec
     //let mut bitreader = Bitreader::new(image_reader);
     let mut decoder=  hfe::DecodeInput::new(Bitreader::new(image_reader));
-    decoder.read_header_into_tree().unwrap();
+    decoder.read_header_into_tree(256).unwrap();
 
     //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
     //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;

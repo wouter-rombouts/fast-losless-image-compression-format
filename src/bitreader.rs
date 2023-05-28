@@ -85,16 +85,7 @@ impl<R: io::Read> Bitreader<'_,R>
         //if we need to read more than what is available in the cache
         let aob_rev = 32-amount_of_bits;
 
-        /*if self.bit_offset > aob_rev
 
-        {
-            let aobdiv8=(amount_of_bits/8)+1 ;
-            //let mut buffer =[0;4];
-            //TODO use VEC declared in struct
-            self.reader.read_exact(&mut self.buffer[(4-aobdiv8 as usize)..]).unwrap();
-            self.bit_offset-=8*aobdiv8;
-            self.cache=(self.cache<<(8*aobdiv8))+ self.buffer[3] as u32+((self.buffer[2]as u32)<<8) +((self.buffer[1] as u32)<<16)+((self.buffer[0] as u32)<<24);
-        }*/
         while self.bit_offset > aob_rev
         {
             self.reader.read_exact(&mut self.buffer).expect("error reading the io source");
