@@ -100,7 +100,7 @@ impl<W:Write> EncodedOutput<'_,W>
     }
 }
 #[derive(PartialEq,PartialOrd,Eq,Ord,Debug)]
-struct LookupItem
+pub struct LookupItem
 {
     code : usize,
     symbol : u8,
@@ -108,7 +108,7 @@ struct LookupItem
 }
 pub struct DecodeInput<'a,R:Read>
 {
-    bitreader : Bitreader<'a,R>,
+    pub bitreader : Bitreader<'a,R>,
     symbols_lookup : Vec<LookupItem>,
 
     max_aob : u8
@@ -116,6 +116,13 @@ pub struct DecodeInput<'a,R:Read>
 
 impl<R:Read> DecodeInput<'_,R>
 {
+
+    pub fn new( bitreader : Bitreader<'_,R> )
+    -> DecodeInput<'_,R>
+    {
+        DecodeInput{ bitreader, symbols_lookup:Vec::new(), max_aob:0}
+    }
+
     pub fn read_header_into_tree( &mut self )
     -> Result<(), io::Error>
     {
@@ -176,12 +183,7 @@ impl Eq for TreeNode
 impl PartialOrd for TreeNode
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))/*
-        match self.occurrences_sum.partial_cmp(&other.occurrences_sum) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        self.split1.partial_cmp(&other.split1)*/
+        Some(self.cmp(other))
     }
 
 }
@@ -263,9 +265,7 @@ mod tests {
         //read
         dbg!(output_vec.len());
         let mut binding = output_vec.as_slice();
-        let mut decoder = super::DecodeInput{ bitreader : crate::bitreader::Bitreader::new( &mut binding ),
-                                              symbols_lookup : Vec::new(),
-                                              max_aob : 0 };
+        let mut decoder = super::DecodeInput::new(  crate::bitreader::Bitreader::new( &mut binding ));
         
         let now = std::time::Instant::now();
         decoder.read_header_into_tree().unwrap();

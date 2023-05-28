@@ -1,7 +1,7 @@
 const NICE: &[u8] = "nice".as_bytes();
 use crate::image::{Image, self};
 use std::{time::Instant, *};
-use crate::hfe::EncodedOutput;
+use crate::hfe::{EncodedOutput, self};
 
 use crate::{bitreader::Bitreader, bitwriter::Bitwriter};
 pub(crate) const PREFIX_RUN: u8 = 3;
@@ -71,10 +71,16 @@ pub fn encode<W: io::Write>(
         let prev_position = position;
         position=image_header.calc_pos_from(loop_index)*channels;  
 
+        if position==468285{
+            dbg!(position);
+            dbg!(prev_position);
+            dbg!(run_count_red);
+            dbg!(run_count_green);
+            dbg!(run_count_blue);
+        }
         if run_count_red ==1 ||run_count_green==1||run_count_blue==1
         {
             //prev_position=position;      
-
             //TODO backreference remaining colors after runlength
             let mut ret_pos=99u8;
 
@@ -91,6 +97,14 @@ pub fn encode<W: io::Write>(
             }
             if ret_pos != 99
             {
+                if position==468285{
+                    println!("PREFIX_BACK_REF");
+                    println!("ret_pos:{}",ret_pos);
+                    println!("ret_posr:{}",previous16_pixels_unique[ret_pos as usize+previous16_pixels_unique_offset].0);
+                    println!("ret_posg:{}",previous16_pixels_unique[ret_pos as usize+previous16_pixels_unique_offset].1);
+                    println!("ret_posb:{}",previous16_pixels_unique[ret_pos as usize+previous16_pixels_unique_offset].2);
+
+                }
                 data.add_symbolu8(PREFIX_BACK_REF);
                 data.add_symbolu8(ret_pos);
                 back_ref_cntr+=1;
@@ -191,7 +205,7 @@ pub fn encode<W: io::Write>(
                 //TODO: wrap around 256/0 logic
                 //TODO check 4 backreference
 
-                if position>0&&is_luma
+                /*if position>0&&is_luma
                 {
                     //bitwriter.write_bits_u8(2, (dif_base+2) as u8)?;
                     data.add_symbolu8(PREFIX_COLOR_LUMA);
@@ -208,9 +222,18 @@ pub fn encode<W: io::Write>(
 
                     luma_occurences+=1;
                 }
-                else
+                else*/
                 {
                     //write rgb
+                    if position==468279{
+                        println!("rgb");
+                        dbg!(input_bytes[position]);
+                        dbg!(input_bytes[position+1]);
+                        dbg!(input_bytes[position+2]);
+                        dbg!(run_count_red);
+                        dbg!(run_count_green);
+                        dbg!(run_count_blue);
+                    }
                     data.add_symbolu8(PREFIX_RGB);
 
                     rgb_cntr+=1;
@@ -406,6 +429,8 @@ pub fn encode<W: io::Write>(
                     }
                 }
             }
+
+            
         //after adding non run colors
 
         //#[cfg(debug_assertions)]
@@ -419,6 +444,8 @@ pub fn encode<W: io::Write>(
     //TODO merge into 1 output
     dbg!(data.data_vec.len());
 
+    let cache=data.bitwriter.cache.to_be_bytes();
+    data.data_vec.extend_from_slice(&cache[..]);
     data.to_encoded_output()?;
     dbg!(data.data_vec.len());
     //handle in hfe
@@ -483,10 +510,15 @@ pub fn decode<R: io::Read>(
     }
 
     dbg!(output_vec.len());
-    //TODO write runs with array API
-    let mut bitreader = Bitreader::new(image_reader);
-    let mut prefix_1bits=bitreader.read_bitsu8(1)?;
-    let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
+    //TODO push output to Vec
+    //let mut bitreader = Bitreader::new(image_reader);
+    let mut decoder=  hfe::DecodeInput::new(Bitreader::new(image_reader));
+    decoder.read_header_into_tree().unwrap();
+
+    //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
+    //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
+
+    let mut prefix1=decoder.read_next_symbol()?;
     let width = width as usize;
     let mut previous16_pixels_unique_offset = 0;
     let mut previous16_pixels_unique : [[u8;3];64] = [[0,0,0];64];
@@ -609,10 +641,10 @@ pub fn decode<R: io::Read>(
 
                         }
                     }*/
-                    if prefix_1bits==PREFIX_COLOR_LUMA
+                    if prefix1==PREFIX_COLOR_LUMA
                     {
                         
-                        let mut is_first=true;
+                        /*let mut is_first=true;
                         let mut first_diff=0;
                         for i in 0..=2
                         {
@@ -629,7 +661,7 @@ pub fn decode<R: io::Read>(
                                     output_vec[position+i]=((bitreader.read_bitsu8(4)? as i16)+first_diff+((output_vec[prev_position+i]) as i16)-8) as u8;
                                 } 
                             }
-                        }
+                        }*/
 
                     }
                     else
@@ -637,38 +669,43 @@ pub fn decode<R: io::Read>(
                         //backref 4 bits!
                         //call after run when needed to get full 4 bits
                         let mut back_ref=0;
-                        if prefix_2bits==PREFIX_BACK_REF
+                        if prefix1==PREFIX_BACK_REF
                         {
-                            back_ref = bitreader.read_bitsu8(5)? as usize;
-                            if 420150==position
-                            {
-                                dbg!(back_ref);
-                            }
+                            back_ref = decoder.read_next_symbol()? as usize;
+
                         }
                         for i in 0..=2
                         {
                             if curr_lengths[i] == 0
-                            {
-                                if prefix_2bits==PREFIX_BACK_REF
+                            {                            
+                                
+                                if prefix1==PREFIX_BACK_REF
                                 {
                                     output_vec[position+i]=previous16_pixels_unique[previous16_pixels_unique_offset+back_ref][i];
                                 }
                                 else
                                 {
-                                    if prefix_2bits==PREFIX_RGB
+                                    if prefix1==PREFIX_RGB
                                     {
     
                                         //RGB
-                                        output_vec[position+i]=bitreader.read_bitsu8(8)?;
-                                 
+                                        output_vec[position+i]=decoder.read_next_symbol()?;
+
     
                                     }
     
                                 }
                             }
+                            else {
+                                curr_lengths[i] -= 1;
+                                output_vec[position+i]=output_vec[prev_position+i];
+
+                            }
                         }
-                        if prefix_2bits==PREFIX_RGB
+                        if prefix1==PREFIX_RGB
                         {
+                            
+
                             previous16_pixels_unique[previous16_pixels_unique_offset+32]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
                             previous16_pixels_unique_offset+=1;
                             if previous16_pixels_unique_offset==32
@@ -680,6 +717,11 @@ pub fn decode<R: io::Read>(
     
                                 previous16_pixels_unique_offset=0;
                             }
+
+                            /*if previous16_pixels_unique[31+previous16_pixels_unique_offset][0]==201&&previous16_pixels_unique[31+previous16_pixels_unique_offset][1]==0&&previous16_pixels_unique[31+previous16_pixels_unique_offset][2]==250
+                            {
+                                dbg!(position);
+                            }*/
                         }
                     }
                     
@@ -691,82 +733,48 @@ pub fn decode<R: io::Read>(
                     //if color_check 
                     //{
                         //can't read 2 as only 1 may be needed
-                        prefix_1bits = bitreader.read_bitsu8(1)?;
+                        prefix1 = decoder.read_next_symbol()?;
                     //}
                     
-                    for i in 0..=2
+                    /*for i in 0..=2
                     {
                         if curr_lengths[i]>0
                         {
                             curr_lengths[i] -= 1;
                             output_vec[position+i]=output_vec[prev_position+i];
                         }
-                    }
+                    }*/
 
                         //read full run for 1 run type up to 3 times
-                    if prefix_1bits == PREFIX_RUN
+
+                    //TODO while loop without if faster???
+                    if prefix1 == PREFIX_RUN
                     {
-                        //return to bitreader if not found
-                        prefix_2bits=bitreader.read_bitsu8(1)?;
-                        if 468141==position
-                        {
-                            dbg!(curr_lengths[0]);
-                            dbg!(curr_lengths[1]);
-                            dbg!(curr_lengths[2]);
-                            dbg!(prefix_1bits);
-                            dbg!(prefix_2bits);
-                        }
-                        if prefix_2bits == PREFIX_RUN
-                        {
-                            let mut run_prefix = bitreader.read_bitsu8(2)?;
-                            let mut temp_curr_runcount: u8 = 0;
+                        let mut run_prefix = decoder.read_next_symbol()?;
+                        let mut temp_curr_runcount: u8;
 
-
-                            for i in 0..=2
+                        for i in 0..=2
+                        {
+                            temp_curr_runcount=0;
+                            while prefix1 == PREFIX_RUN && run_prefix == PREFIX_RUNS[i]
                             {
-                                temp_curr_runcount=0;
-                                while prefix_1bits==PREFIX_RUN && prefix_2bits == PREFIX_RUN && run_prefix == PREFIX_RUNS[i]
+                                curr_lengths[i] +=(decoder.read_next_symbol()? as usize) << temp_curr_runcount;
+                                prefix1 = decoder.read_next_symbol()?;
+                                if prefix1 == PREFIX_RUN
                                 {
-                                    let mut temp_run_count=0;
-                                    while bitreader.read_bitsu8(1)?==0
-                                    {
-                                        temp_run_count+=1;
-                                    }
-                                    if 468141==position
-                                    {
-                                        dbg!(temp_run_count);
-                                    }
-                                    curr_lengths[i] +=(temp_run_count as usize) << temp_curr_runcount;
-                                    prefix_1bits = bitreader.read_bitsu8(1)?;
-                                    prefix_2bits = bitreader.read_bitsu8(1)?;
-                                    
-                                    if 468141==position
-                                    {
-                                        dbg!(prefix_1bits);
-                                        dbg!(prefix_2bits);
-                                        dbg!(curr_lengths[i]);
-                                    }
-
-                                    if prefix_1bits==PREFIX_RUN && prefix_2bits == PREFIX_RUN
-                                    {
-                                        run_prefix = bitreader.read_bitsu8(2)?;
-                                    }
-
-                                    temp_curr_runcount += 3;
-                                }                   
-                                        
-                                if temp_curr_runcount > 0
-                                {
-                                    curr_lengths[i] += 1;
+                                    run_prefix = decoder.read_next_symbol()?;
                                 }
-                                dbg!(position);
-                                //dbg!(loopindex);
-                                dbg!(curr_lengths[i]);
-                                dbg!(prefix_1bits);
-                                dbg!(prefix_2bits);
-                            }
+                                temp_curr_runcount += 3;
 
+                            }                   
+                                    
+                            if temp_curr_runcount > 0
+                            {
+                                curr_lengths[i] += 1;
+                            }
                         }
+
+                        
                     }
                     
                 }
@@ -778,7 +786,7 @@ pub fn decode<R: io::Read>(
                         output_vec[position+i]=output_vec[prev_position+i];
                     }
                 }
-                
+
                 #[cfg(debug_assertions)]
                 {
                     //let dump_res=dump.next().unwrap().unwrap();
