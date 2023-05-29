@@ -82,20 +82,15 @@ impl<R: io::Read> Bitreader<'_,R>
     )
     -> u32
     {
-        //if we need to read more than what is available in the cache
         let aob_rev = 32-amount_of_bits;
 
-
+        //if we need to read more than what is available in the cache
         while self.bit_offset > aob_rev
         {
             self.reader.read_exact(&mut self.buffer).expect("error reading the io source");
-            //self.reader.read(&mut buffer[..]).unwrap();
             self.bit_offset-=8;
             self.cache=(self.cache<<8)+ self.buffer[0] as u32;
-
         }
-        //let ret  =;
-        //self.bit_offset+=amount_of_bits;
         (self.cache<<self.bit_offset)>>aob_rev
     }
 }
