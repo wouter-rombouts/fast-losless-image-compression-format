@@ -5,14 +5,19 @@ use std::{time::Instant, *};
 use crate::hfe::{EncodedOutput, self};
 
 use crate::{bitreader::Bitreader, bitwriter::Bitwriter};
-pub(crate) const PREFIX_RUN: u8 = 3;
-pub(crate) const PREFIX_RED_RUN: u8 = 4;
-pub(crate) const PREFIX_GREEN_RUN: u8 = 5;
-pub(crate) const PREFIX_BLUE_RUN: u8 = 6;
+pub(crate) const PREFIX_RUN: u8 = 2;
+pub(crate) const PREFIX_RED_RUN: u8 = 0;
+pub(crate) const PREFIX_GREEN_RUN: u8 = 1;
+pub(crate) const PREFIX_BLUE_RUN: u8 = 2;
 pub(crate) const PREFIX_RGB: u8 = 0;
-pub(crate) const PREFIX_BACK_REF: u8 = 2;
-pub(crate) const PREFIX_COLOR_LUMA: u8 = 1;
-const PREFIX_RUNS:[u8;3]=[PREFIX_RED_RUN,PREFIX_GREEN_RUN,PREFIX_BLUE_RUN];
+pub(crate) const PREFIX_BACK_REF: u8 = 1;
+pub(crate) const PREFIX_COLOR_LUMA: u8 = 3;
+//stream codes
+pub(crate) const SC_RGB: u8 = 0;
+pub(crate) const SC_PREFIXES: u8 = 1;
+pub(crate) const SC_RUN_PREFIXES: u8 = 2;
+pub(crate) const SC_BACK_REFS: u8 = 3;
+pub(crate) const SC_RUN_LENGTHS: u8 = 4;
 
 pub fn encode<W: io::Write>(
     input_bytes: &[u8],
@@ -45,8 +50,16 @@ pub fn encode<W: io::Write>(
     let mut data =EncodedOutput::new( image_size );
 
     //initialize all output streams
-    //RGB must be 0==PREFIX_RGB
+    //0==PREFIX_RGB
     data.add_output_type(256);
+    //1==SC_PREFIXES
+    data.add_output_type(3);
+    //2==SC_RUN_PREFIXES
+    data.add_output_type(3);
+    //3==SC_BACK_REFS
+    data.add_output_type(32);
+    //4==SC_RUN_LENGTHS
+    data.add_output_type(8);
 
     //TODO fill in with most common colors
     //16 size, with 16 spares
@@ -74,13 +87,6 @@ pub fn encode<W: io::Write>(
         let prev_position = position;
         position=image_header.calc_pos_from(loop_index)*channels;  
 
-        if position==468285{
-            dbg!(position);
-            dbg!(prev_position);
-            dbg!(run_count_red);
-            dbg!(run_count_green);
-            dbg!(run_count_blue);
-        }
         if run_count_red ==1 ||run_count_green==1||run_count_blue==1
         {
             //prev_position=position;      
@@ -101,8 +107,8 @@ pub fn encode<W: io::Write>(
             if ret_pos != 99
             {
                 
-                data.add_symbolu8(PREFIX_BACK_REF, PREFIX_RGB);
-                data.add_symbolu8(ret_pos, PREFIX_RGB);
+                data.add_symbolu8(PREFIX_BACK_REF, SC_PREFIXES);
+                data.add_symbolu8(ret_pos, SC_BACK_REFS);
                 back_ref_cntr+=1;
             }
             else
@@ -221,16 +227,7 @@ pub fn encode<W: io::Write>(
                 else*/
                 {
                     //write rgb
-                    if position==468279{
-                        println!("rgb");
-                        dbg!(input_bytes[position]);
-                        dbg!(input_bytes[position+1]);
-                        dbg!(input_bytes[position+2]);
-                        dbg!(run_count_red);
-                        dbg!(run_count_green);
-                        dbg!(run_count_blue);
-                    }
-                    data.add_symbolu8(PREFIX_RGB, PREFIX_RGB);
+                    data.add_symbolu8(PREFIX_RGB, SC_PREFIXES);
 
                     rgb_cntr+=1;
                     if run_count_red == 1
@@ -313,7 +310,7 @@ pub fn encode<W: io::Write>(
             if run_count_red==1
             {
                 let mut red_run_length = 0;
-                let mut prev_red_run_loop_position=position;
+                //let mut prev_red_run_loop_position=position;
                 let mut red_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
                 
                 while red_run_loop_position<image_size&&
@@ -322,7 +319,7 @@ pub fn encode<W: io::Write>(
                       input_bytes[red_run_loop_position+2]!=input_bytes[prev_red_run_loop_position+2]*/
                 {
                     red_run_length+=1;
-                    prev_red_run_loop_position=red_run_loop_position;
+                    //prev_red_run_loop_position=red_run_loop_position;
                     red_run_loop_position=image_header.calc_pos_from(loop_index+red_run_length+1)*channels;
                 }
 
@@ -337,9 +334,9 @@ pub fn encode<W: io::Write>(
                     loop
                     {
                         
-                        data.add_symbolu8(PREFIX_RUN, PREFIX_RGB);
-                        data.add_symbolu8(PREFIX_RED_RUN, PREFIX_RGB);
-                        data.add_symbolu8((red_run_length & 0b0000_0111).try_into().unwrap(), PREFIX_RGB);
+                        data.add_symbolu8(PREFIX_RUN, SC_PREFIXES);
+                        data.add_symbolu8(PREFIX_RED_RUN, SC_RUN_PREFIXES);
+                        data.add_symbolu8((red_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                         run_occurrences[(red_run_length & 0b0000_0111)]+=1;
                         if red_run_length <8
                         {
@@ -353,7 +350,7 @@ pub fn encode<W: io::Write>(
             if run_count_green==1
             {
                 let mut green_run_length = 0;
-                let mut prev_green_run_loop_position=position;
+                //let mut prev_green_run_loop_position=position;
                 let mut green_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
                 
                 while green_run_loop_position<image_size&&
@@ -362,7 +359,7 @@ pub fn encode<W: io::Write>(
                       input_bytes[green_run_loop_position+2]!=input_bytes[prev_green_run_loop_position+2]*/
                 {
                     green_run_length+=1;
-                    prev_green_run_loop_position=green_run_loop_position;
+                    //prev_green_run_loop_position=green_run_loop_position;
                     green_run_loop_position=image_header.calc_pos_from(loop_index+green_run_length+1)*channels;
                 }
 
@@ -375,9 +372,9 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        data.add_symbolu8(PREFIX_RUN, PREFIX_RGB);
-                        data.add_symbolu8(PREFIX_GREEN_RUN, PREFIX_RGB);
-                        data.add_symbolu8((green_run_length & 0b0000_0111).try_into().unwrap(), PREFIX_RGB);
+                        data.add_symbolu8(PREFIX_RUN, SC_PREFIXES);
+                        data.add_symbolu8(PREFIX_GREEN_RUN, SC_RUN_PREFIXES);
+                        data.add_symbolu8((green_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                         run_occurrences[(green_run_length & 0b0000_0111)]+=1;
                         if green_run_length <8
                         {
@@ -391,7 +388,7 @@ pub fn encode<W: io::Write>(
             if run_count_blue==1
             {
                 let mut blue_run_length = 0;
-                let mut prev_blue_run_loop_position=position;
+                //let mut prev_blue_run_loop_position=position;
                 let mut blue_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
                 
                 while blue_run_loop_position<image_size&&
@@ -400,7 +397,7 @@ pub fn encode<W: io::Write>(
                       input_bytes[blue_run_loop_position]!=input_bytes[prev_blue_run_loop_position]*/
                 {
                     blue_run_length+=1;
-                    prev_blue_run_loop_position=blue_run_loop_position;
+                    //prev_blue_run_loop_position=blue_run_loop_position;
                     blue_run_loop_position=image_header.calc_pos_from(loop_index+blue_run_length+1)*channels;
                 }
 
@@ -413,9 +410,9 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        data.add_symbolu8(PREFIX_RUN, PREFIX_RGB);
-                        data.add_symbolu8(PREFIX_BLUE_RUN, PREFIX_RGB);
-                        data.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap(), PREFIX_RGB);
+                        data.add_symbolu8(PREFIX_RUN, SC_PREFIXES);
+                        data.add_symbolu8(PREFIX_BLUE_RUN, SC_RUN_PREFIXES);
+                        data.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                         run_occurrences[(blue_run_length & 0b0000_0111)]+=1;
                         if blue_run_length <8
                         {
@@ -512,12 +509,23 @@ pub fn decode<R: io::Read>(
     //TODO push output to Vec
     //let mut bitreader = Bitreader::new(image_reader);
     let mut decoder=  hfe::DecodeInput::new(Bitreader::new(image_reader));
-    decoder.read_header_into_tree(256).unwrap();
+
+    //0==PREFIX_RGB
+    decoder.add_input_type(256);
+    //1==SC_PREFIXES
+    decoder.add_input_type(3);
+    //2==SC_RUN_PREFIXES
+    decoder.add_input_type(3);
+    //3==SC_BACK_REFS
+    decoder.add_input_type(32);
+    //4==SC_RUN_LENGTHS
+    decoder.add_input_type(8);
+    decoder.read_header_into_tree().unwrap();
 
     //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
     //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
 
-    let mut prefix1=decoder.read_next_symbol()?;
+    let mut prefix1=decoder.read_next_symbol(SC_PREFIXES)?;
     let width = width as usize;
     let mut previous16_pixels_unique_offset = 0;
     let mut previous16_pixels_unique : [[u8;3];64] = [[0,0,0];64];
@@ -670,7 +678,7 @@ pub fn decode<R: io::Read>(
                         let mut back_ref=0;
                         if prefix1==PREFIX_BACK_REF
                         {
-                            back_ref = decoder.read_next_symbol()? as usize;
+                            back_ref = decoder.read_next_symbol(SC_BACK_REFS)? as usize;
 
                         }
                         for i in 0..=2
@@ -688,7 +696,7 @@ pub fn decode<R: io::Read>(
                                     {
     
                                         //RGB
-                                        output_vec[position+i]=decoder.read_next_symbol()?;
+                                        output_vec[position+i]=decoder.read_next_symbol(SC_RGB)?;
 
     
                                     }
@@ -723,57 +731,39 @@ pub fn decode<R: io::Read>(
                             }*/
                         }
                     }
-                    
 
+                    prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
 
-
-
-                    //get run length
-                    //if color_check 
-                    //{
-                        //can't read 2 as only 1 may be needed
-                        prefix1 = decoder.read_next_symbol()?;
-                    //}
-                    
-                    /*for i in 0..=2
-                    {
-                        if curr_lengths[i]>0
-                        {
-                            curr_lengths[i] -= 1;
-                            output_vec[position+i]=output_vec[prev_position+i];
-                        }
-                    }*/
-
-                        //read full run for 1 run type up to 3 times
-
-                    //TODO while loop without if faster???
+                     //read full run for 1 run type up to 3 times
                     if prefix1 == PREFIX_RUN
                     {
-                        let mut run_prefix = decoder.read_next_symbol()?;
-                        let mut temp_curr_runcount: u8;
-
-                        for i in 0..=2
-                        {
-                            temp_curr_runcount=0;
-                            while prefix1 == PREFIX_RUN && run_prefix == PREFIX_RUNS[i]
+                        let mut run_prefix =u8::MAX;
+                        let mut curr_run_prefix;
+                        let mut temp_curr_runcount: u8=0;
+                        loop
+                        {   
+                            curr_run_prefix = decoder.read_next_symbol(SC_RUN_PREFIXES)?;
+                            if curr_run_prefix != run_prefix
                             {
-                                curr_lengths[i] +=(decoder.read_next_symbol()? as usize) << temp_curr_runcount;
-                                prefix1 = decoder.read_next_symbol()?;
-                                if prefix1 == PREFIX_RUN
+                                if temp_curr_runcount > 0
                                 {
-                                    run_prefix = decoder.read_next_symbol()?;
+                                    curr_lengths[run_prefix as usize] += 1;
                                 }
-                                temp_curr_runcount += 3;
-
-                            }                   
-                                    
-                            if temp_curr_runcount > 0
-                            {
-                                curr_lengths[i] += 1;
+                                run_prefix=curr_run_prefix;
+                                temp_curr_runcount=0;
                             }
-                        }
 
-                        
+                            //run lengths
+                            curr_lengths[curr_run_prefix as usize] +=(decoder.read_next_symbol(SC_RUN_LENGTHS)? as usize) << temp_curr_runcount;
+                            temp_curr_runcount += 3;
+                            prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
+
+                            if prefix1 != PREFIX_RUN
+                            {   
+                                curr_lengths[curr_run_prefix as usize] += 1;
+                                break;
+                            }
+                        }   
                     }
                     
                 }
@@ -788,9 +778,6 @@ pub fn decode<R: io::Read>(
 
                 #[cfg(debug_assertions)]
                 {
-                    //let dump_res=dump.next().unwrap().unwrap();
-
-
                     debug_assert!(dump[position]==output_vec[position],"expected: {}, output: {} at position {}, index: {}",dump[position],output_vec[position],position,loopindex);
                     debug_assert!(dump[position+1]==output_vec[position+1],"expected: {}, output: {} at position {}, index: {}",dump[position+1],output_vec[position+1],position+1,loopindex);
                     debug_assert!(dump[position+2]==output_vec[position+2],"expected: {}, output: {} at position {}, index: {}",dump[position+2],output_vec[position+2],position+2,loopindex);

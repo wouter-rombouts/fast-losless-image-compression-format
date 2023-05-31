@@ -127,52 +127,61 @@ pub struct LookupItem
 pub struct DecodeInput<'a,R:Read>
 {
     pub bitreader : Bitreader<'a,R>,
-    symbols_lookup : Vec<LookupItem>,
+    symbols_lookup : Vec<(u8,Vec<LookupItem>)>,
 
-    max_aob : u8
+    //max_aob : u8
 }
 
 impl<R:Read> DecodeInput<'_,R>
 {
 
+    pub fn add_input_type( &mut self, size : usize )
+    {
+        self.symbols_lookup.push((0, Vec::<LookupItem>::with_capacity(size)));
+    }
+
     pub fn new( bitreader : Bitreader<'_,R> )
     -> DecodeInput<'_,R>
     {
-        DecodeInput{ bitreader, symbols_lookup:Vec::new(), max_aob:0}
+        DecodeInput{ bitreader, symbols_lookup:Vec::<(u8, Vec<LookupItem>)>::new()}
     }
 
-    pub fn read_header_into_tree( &mut self, amount_of_symbols : usize )
+    pub fn read_header_into_tree( &mut self )
     -> Result<(), io::Error>
     {
-        self.max_aob=self.bitreader.read_bitsu8(5)?;
-        let max_aob_bits = self.max_aob.next_power_of_two().count_zeros() as u8;
-
-        let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 0, code: 0 };amount_of_symbols];
-        for i in 0..amount_of_symbols
+        for aob_vec in self.symbols_lookup.iter_mut()
         {
-            bcodes[i].aob=self.bitreader.read_bitsu8(max_aob_bits)?;
-        }
-        
-        //bitshift codes
-        //add symbols and order by smallest aob,largest code value
-        amount_of_bits_to_bcodes(&mut bcodes);
+            let amount_of_symbols=aob_vec.1.capacity();
+            aob_vec.0=self.bitreader.read_bitsu8(5)?;
+            let max_aob_bits = aob_vec.0.next_power_of_two().count_zeros() as u8;
 
-        self.symbols_lookup=Vec::with_capacity(amount_of_symbols);
-        for (i,code_symbol) in bcodes.iter().enumerate()
-        {
-            self.symbols_lookup.push(LookupItem{ code: code_symbol.code<<(self.max_aob-code_symbol.aob) as usize, symbol: i as u8, aob: code_symbol.aob });
+            let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 0, code: 0 };amount_of_symbols];
+            for i in 0..amount_of_symbols
+            {
+                bcodes[i].aob=self.bitreader.read_bitsu8(max_aob_bits)?;
+            }
+            
+            //bitshift codes
+            //add symbols and order by smallest aob,largest code value
+            amount_of_bits_to_bcodes(&mut bcodes);
+
+            //self.symbols_lookup=Vec::with_capacity(amount_of_symbols);
+            for (i,code_symbol) in bcodes.iter().enumerate()
+            {
+                aob_vec.1.push(LookupItem{ code: code_symbol.code<<(aob_vec.0-code_symbol.aob) as usize, symbol: i as u8, aob: code_symbol.aob });
+            }
+            //new values: bitshifted code and the symbol
+            //sorted by bitshifted symbols, which is unique
+            aob_vec.1.sort_unstable_by(|a, b|b.cmp(a));
         }
-        //new values: bitshifted code and the symbol
-        //sorted by bitshifted symbols, which is unique
-        self.symbols_lookup.sort_unstable_by(|a, b|b.cmp(a));
         Ok(())
     }
 
-    pub fn read_next_symbol( &mut self )
+    pub fn read_next_symbol( &mut self, lookup_type : u8 )
     -> Result<u8, io::Error>
     {
-        let newcode=self.bitreader.read_24bits_noclear(self.max_aob)as usize;
-        Ok(&self.symbols_lookup[self.symbols_lookup.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {self.bitreader.bit_offset+=i.aob;i.symbol})
+        let newcode=self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].0)as usize;
+        Ok(&self.symbols_lookup[lookup_type as usize].1[self.symbols_lookup[lookup_type as usize].1.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {self.bitreader.bit_offset+=i.aob;i.symbol})
     }
 }
 #[derive(Eq)]
@@ -282,14 +291,15 @@ mod tests {
         let mut decoder = super::DecodeInput::new(  crate::bitreader::Bitreader::new( &mut binding ));
         
         let now = std::time::Instant::now();
-        decoder.read_header_into_tree(SIZE_ARR).unwrap();
+        decoder.add_input_type(SIZE_ARR);
+        decoder.read_header_into_tree().unwrap();
         //dbg!(decoder.symbols_lookup);
         //TODO: opti decoder speed
         for i in 0usize..SIZE_ARR
         {
             for _j in 0..i*10
             {
-                let res =decoder.read_next_symbol().unwrap();
+                let res =decoder.read_next_symbol(0).unwrap();
                 debug_assert_eq!(res,(i) as u8,"i:{}",i);
             }
         }
