@@ -18,6 +18,8 @@ pub(crate) const SC_PREFIXES: u8 = 1;
 pub(crate) const SC_RUN_PREFIXES: u8 = 2;
 pub(crate) const SC_BACK_REFS: u8 = 3;
 pub(crate) const SC_RUN_LENGTHS: u8 = 4;
+pub(crate) const SC_LUMA_BASE_DIFF: u8 = 5;
+pub(crate) const SC_LUMA_OTHER_DIFF: u8 = 6;
 
 pub fn encode<W: io::Write>(
     input_bytes: &[u8],
@@ -53,13 +55,17 @@ pub fn encode<W: io::Write>(
     //0==PREFIX_RGB
     data.add_output_type(256);
     //1==SC_PREFIXES
-    data.add_output_type(3);
+    data.add_output_type(4);
     //2==SC_RUN_PREFIXES
     data.add_output_type(3);
     //3==SC_BACK_REFS
     data.add_output_type(32);
     //4==SC_RUN_LENGTHS
     data.add_output_type(8);
+    //5==SC_LUMA_BASE_DIFF
+    data.add_output_type(32);
+    //5==SC_LUMA_OTHER_DIFF
+    data.add_output_type(16);
 
     //TODO fill in with most common colors
     //16 size, with 16 spares
@@ -210,14 +216,14 @@ pub fn encode<W: io::Write>(
                 /*if position>0&&is_luma
                 {
                     //bitwriter.write_bits_u8(2, (dif_base+2) as u8)?;
-                    data.add_symbolu8(PREFIX_COLOR_LUMA);
-                    data.add_symbolu8((first+16) as u8);
+                    data.add_symbolu8(PREFIX_COLOR_LUMA, SC_PREFIXES);
+                    data.add_symbolu8((first+16) as u8, SC_LUMA_BASE_DIFF);
 
                     for i in 0..=2
                     {
                         if list_of_color_diffs[i]!=i16::MAX&&list_of_color_diffs[i]!=first
                         {
-                            data.add_symbolu8((list_of_color_diffs[i]+8) as u8);
+                            data.add_symbolu8((list_of_color_diffs[i]+8) as u8, SC_LUMA_OTHER_DIFF);
                         }
                     }
                     
@@ -513,13 +519,17 @@ pub fn decode<R: io::Read>(
     //0==PREFIX_RGB
     decoder.add_input_type(256);
     //1==SC_PREFIXES
-    decoder.add_input_type(3);
+    decoder.add_input_type(4);
     //2==SC_RUN_PREFIXES
     decoder.add_input_type(3);
     //3==SC_BACK_REFS
     decoder.add_input_type(32);
     //4==SC_RUN_LENGTHS
     decoder.add_input_type(8);
+    //5==SC_LUMA_BASE_DIFF
+    decoder.add_input_type(32);
+    //5==SC_LUMA_OTHER_DIFF
+    decoder.add_input_type(16);
     decoder.read_header_into_tree().unwrap();
 
     //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
@@ -651,7 +661,7 @@ pub fn decode<R: io::Read>(
                     if prefix1==PREFIX_COLOR_LUMA
                     {
                         
-                        /*let mut is_first=true;
+                        let mut is_first=true;
                         let mut first_diff=0;
                         for i in 0..=2
                         {
@@ -659,16 +669,16 @@ pub fn decode<R: io::Read>(
                             {
                                 if is_first
                                 {
-                                    first_diff=((prefix_2bits<<5)+bitreader.read_bitsu8(4)?) as i16-16;
+                                    first_diff=(decoder.read_next_symbol(SC_LUMA_BASE_DIFF)?) as i16-16;
                                     output_vec[position+i]=(first_diff+((output_vec[prev_position+i]) as i16)) as u8;
                                     is_first=false;
                                 }
                                 else
                                 {
-                                    output_vec[position+i]=((bitreader.read_bitsu8(4)? as i16)+first_diff+((output_vec[prev_position+i]) as i16)-8) as u8;
+                                    output_vec[position+i]=((decoder.read_next_symbol(SC_LUMA_OTHER_DIFF)? as i16)+first_diff+((output_vec[prev_position+i]) as i16)-8) as u8;
                                 } 
                             }
-                        }*/
+                        }
 
                     }
                     else
