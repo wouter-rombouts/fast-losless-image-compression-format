@@ -64,7 +64,7 @@ pub fn encode<W: io::Write>(
     data.add_output_type(8);
     //5==SC_LUMA_BASE_DIFF
     data.add_output_type(32);
-    //5==SC_LUMA_OTHER_DIFF
+    //6==SC_LUMA_OTHER_DIFF
     data.add_output_type(16);
 
     //TODO fill in with most common colors
@@ -158,23 +158,23 @@ pub fn encode<W: io::Write>(
                     //blue_diff
                     list_of_color_diffs[2]=input_bytes[position+2] as i16-input_bytes[prev_position+2] as i16;
                 };
-                let mut first=i16::MAX;
+                let mut i_first=usize::MAX;
                 let mut is_luma=true;
                 for i in 0..=2
                 {
                     if list_of_color_diffs[i]!=i16::MAX
                     {
-                        if first==i16::MAX
+                        if i_first==usize::MAX
                         {
-                            first=list_of_color_diffs[i];
-                            if !(first>=-16&&first<16)
+                            i_first=i;
+                            if !(list_of_color_diffs[i_first]>=-16&&list_of_color_diffs[i_first]<16)
                             {
                                 is_luma=false;
                             }
                         }
                         else
                         {
-                            list_of_color_diffs[i]=list_of_color_diffs[i]-first;
+                            list_of_color_diffs[i]=list_of_color_diffs[i]-list_of_color_diffs[i_first];
                             if !(list_of_color_diffs[i]>=-8&&list_of_color_diffs[i]<8)
                             {
                                 is_luma=false;
@@ -213,15 +213,15 @@ pub fn encode<W: io::Write>(
                 //TODO: wrap around 256/0 logic
                 //TODO check 4 backreference
 
-                /*if position>0&&is_luma
+                if position>0&&is_luma
                 {
                     //bitwriter.write_bits_u8(2, (dif_base+2) as u8)?;
                     data.add_symbolu8(PREFIX_COLOR_LUMA, SC_PREFIXES);
-                    data.add_symbolu8((first+16) as u8, SC_LUMA_BASE_DIFF);
+                    data.add_symbolu8((list_of_color_diffs[i_first]+16) as u8, SC_LUMA_BASE_DIFF);
 
                     for i in 0..=2
                     {
-                        if list_of_color_diffs[i]!=i16::MAX&&list_of_color_diffs[i]!=first
+                        if list_of_color_diffs[i]!=i16::MAX&&i !=i_first
                         {
                             data.add_symbolu8((list_of_color_diffs[i]+8) as u8, SC_LUMA_OTHER_DIFF);
                         }
@@ -230,7 +230,7 @@ pub fn encode<W: io::Write>(
 
                     luma_occurences+=1;
                 }
-                else*/
+                else
                 {
                     //write rgb
                     data.add_symbolu8(PREFIX_RGB, SC_PREFIXES);
@@ -267,50 +267,7 @@ pub fn encode<W: io::Write>(
             run_count_blue-=1;
         }
         
-        /*if run_count_blue==1&&run_count_green==1&&run_count_red==1
-        {
-            let mut pixel_run_length = 0;
-            let mut pixel_run_loop_position=image_header.calc_pos_from(loop_index+1)*channels;
-            
-            while pixel_run_loop_position<image_size&&input_bytes[pixel_run_loop_position]==input_bytes[position]&&
-                  input_bytes[pixel_run_loop_position+1]==input_bytes[position+1]&&
-                  input_bytes[pixel_run_loop_position+2]==input_bytes[position+2]
-            {
-                pixel_run_length+=1;
-                pixel_run_loop_position=image_header.calc_pos_from(loop_index+pixel_run_length+1)*channels;
-            }
-            // these pixels will be skipped in the next iterations
-            //TODO test if actually skipping all at once is faster
-            run_count_red+=pixel_run_length;
-            run_count_green+=pixel_run_length;
-            run_count_blue+=pixel_run_length;
-
-            if pixel_run_length > 0
-            {
-                if loop_index==00
-                {
-                    dbg!(pixel_run_loop_position);
-                    debug_assert_eq!(pixel_run_length,140352);
-                }
-                run_cntr+=pixel_run_length;
-                pixel_run_length=pixel_run_length-1;
-                //position = pixel_run_loop_position;
-                loop
-                {
-                    bitwriter.write_bits_u8( 8, (PREFIX_PIXEL_RUN<<4)+((pixel_run_length & 0b0000_1111) as u8 ) )?;
-                    
-                    if pixel_run_length <16
-                    {
-                    break;
-                    }
-                    pixel_run_length = pixel_run_length >> 4;
-                }
-
-                //position+=min*channels;
-
-
-            }
-        }*/
+        
 
             //check for color run
             if run_count_red==1
@@ -528,7 +485,7 @@ pub fn decode<R: io::Read>(
     decoder.add_input_type(8);
     //5==SC_LUMA_BASE_DIFF
     decoder.add_input_type(32);
-    //5==SC_LUMA_OTHER_DIFF
+    //6==SC_LUMA_OTHER_DIFF
     decoder.add_input_type(16);
     decoder.read_header_into_tree().unwrap();
 
@@ -658,6 +615,10 @@ pub fn decode<R: io::Read>(
 
                         }
                     }*/
+                    if position== 468447{
+                        dbg!(prefix1);
+
+                    }
                     if prefix1==PREFIX_COLOR_LUMA
                     {
                         
@@ -678,6 +639,11 @@ pub fn decode<R: io::Read>(
                                     output_vec[position+i]=((decoder.read_next_symbol(SC_LUMA_OTHER_DIFF)? as i16)+first_diff+((output_vec[prev_position+i]) as i16)-8) as u8;
                                 } 
                             }
+                            else {
+                                curr_lengths[i] -= 1;
+                                output_vec[position+i]=output_vec[prev_position+i];
+
+                            }
                         }
 
                     }
@@ -688,7 +654,8 @@ pub fn decode<R: io::Read>(
                         let mut back_ref=0;
                         if prefix1==PREFIX_BACK_REF
                         {
-                            back_ref = decoder.read_next_symbol(SC_BACK_REFS)? as usize;
+                            back_ref = decoder.read_next_symbol(SC_BACK_REFS)? as usize;                    
+
 
                         }
                         for i in 0..=2
@@ -719,29 +686,22 @@ pub fn decode<R: io::Read>(
 
                             }
                         }
-                        if prefix1==PREFIX_RGB
-                        {
-                            
-
-                            previous16_pixels_unique[previous16_pixels_unique_offset+32]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
-                            previous16_pixels_unique_offset+=1;
-                            if previous16_pixels_unique_offset==32
-                            {
-                                for i in 0..=31
-                                {
-                                    previous16_pixels_unique[i]=previous16_pixels_unique[i+32];
-                                }
-    
-                                previous16_pixels_unique_offset=0;
-                            }
-
-                            /*if previous16_pixels_unique[31+previous16_pixels_unique_offset][0]==201&&previous16_pixels_unique[31+previous16_pixels_unique_offset][1]==0&&previous16_pixels_unique[31+previous16_pixels_unique_offset][2]==250
-                            {
-                                dbg!(position);
-                            }*/
-                        }
                     }
 
+                    if prefix1==PREFIX_RGB||prefix1==PREFIX_COLOR_LUMA
+                    {
+                        previous16_pixels_unique[previous16_pixels_unique_offset+32]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
+                        previous16_pixels_unique_offset+=1;
+                        if previous16_pixels_unique_offset==32
+                        {
+                            for i in 0..=31
+                            {
+                                previous16_pixels_unique[i]=previous16_pixels_unique[i+32];
+                            }
+
+                            previous16_pixels_unique_offset=0;
+                        }
+                    }
                     prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
 
                      //read full run for 1 run type up to 3 times
