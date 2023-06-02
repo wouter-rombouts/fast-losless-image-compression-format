@@ -286,13 +286,13 @@ pub fn encode<W: io::Write>(
                     red_run_loop_position=image_header.calc_pos_from(loop_index+red_run_length+1)*channels;
                 }
 
-                if red_run_length > 1
+                if red_run_length > 2
                 {
                     //add red runlength
                     //loop
                     run_count_red+=red_run_length;
                     red_pixel_run_amount+=red_run_length;
-                    red_run_length = red_run_length - 2;
+                    red_run_length = red_run_length - 3;
                     run_cntr+=1;
                     loop
                     {
@@ -326,12 +326,12 @@ pub fn encode<W: io::Write>(
                     green_run_loop_position=image_header.calc_pos_from(loop_index+green_run_length+1)*channels;
                 }
 
-                if green_run_length > 1
+                if green_run_length > 2
                 {
                     //add green runlength
                     //loop
                     run_count_green+=green_run_length;
-                    green_run_length = green_run_length - 2;
+                    green_run_length = green_run_length - 3;
                     run_cntr+=1;
                     loop
                     {
@@ -364,12 +364,12 @@ pub fn encode<W: io::Write>(
                     blue_run_loop_position=image_header.calc_pos_from(loop_index+blue_run_length+1)*channels;
                 }
 
-                if blue_run_length > 1
+                if blue_run_length > 2
                 {
                     //add blue runlength
                     //loop
                     run_count_blue+=blue_run_length;
-                    blue_run_length = blue_run_length - 2;
+                    blue_run_length = blue_run_length - 3;
                     run_cntr+=1;
                     loop
                     {
@@ -437,7 +437,6 @@ pub fn decode<R: io::Read>(
     channels_out: u8,
     output_vec: &mut Vec<u8>,
 ) -> std::io::Result<Image> {
-    let now = Instant::now();
     image_reader.read(&mut [0; 4])?;
     let mut buf = [0; 4];
     image_reader.read(&mut buf)?;
@@ -493,10 +492,10 @@ pub fn decode<R: io::Read>(
     //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
 
     let mut prefix1=decoder.read_next_symbol(SC_PREFIXES)?;
-    let width = width as usize;
+    //let width = width as usize;
     let mut previous16_pixels_unique_offset = 0;
     let mut previous16_pixels_unique : [[u8;3];64] = [[0,0,0];64];
-    let mut prev_position = 0;
+    let mut prev_position;
     //curr_lengths[0] is red
     //curr_lengths[1] is green
     //curr_lengths[2] is blue
@@ -516,7 +515,7 @@ pub fn decode<R: io::Read>(
     let mut list_of_subblocks_in_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
     let mut list_of_subblocks_in_bottom_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
     let mut pos_subblock_xyleftover_lookup: Vec<usize>;
-    for i in 0..image.subblocks_in_width
+    for _ in 0..image.subblocks_in_width
     {
         list_of_subblocks_in_widthblock.push(&pos_subblock_lookup);
     }
@@ -536,7 +535,7 @@ pub fn decode<R: io::Read>(
     //TODO push list_of_subblocks_in_widthblock over the height except leftover
     let mut list_of_subblocks_in_heightblock:Vec<&Vec<&[usize]>>=Vec::with_capacity(image.subblocks_in_height+1);
     //add top width blocks
-    for i in 0..image.subblocks_in_height
+    for _ in 0..image.subblocks_in_height
     {
         list_of_subblocks_in_heightblock.push(&list_of_subblocks_in_widthblock);
     }
@@ -570,21 +569,8 @@ pub fn decode<R: io::Read>(
         list_of_subblocks_in_heightblock.push(&list_of_subblocks_in_bottom_widthblock);
 
     }
-
-
-
-                
             
     let mut curr_lengths: [usize;3]=[0;3];
-    //while position < image_size
-    /*let mut pos_offset=0;
-    for i in 0..image.subblocks_in_width
-    {
-        position=pos_offset+pos_subblock_lookup[i];
-    }
-    pos_offset+=crate::image::SUBBLOCK_WIDTH_MAX;*/
-    /*for px_i in 0..image_size/channels
-    {*/
     #[cfg(debug_assertions)]
     let mut loopindex=0;
     
@@ -597,10 +583,6 @@ pub fn decode<R: io::Read>(
                 //y, then x
                 prev_position=position;
                 position = channels*(y*image.width_block_size+x*image::SUBBLOCK_WIDTH_MAX)+list_of_subblocks_in_heightblock[y][x][i];
-
-
-
-
 
                 if curr_lengths.iter().any(|&x| x == 0)
                 {
@@ -719,7 +701,7 @@ pub fn decode<R: io::Read>(
                             {
                                 if temp_curr_runcount > 0
                                 {
-                                    curr_lengths[run_prefix as usize] += 2;
+                                    curr_lengths[run_prefix as usize] += 3;
                                 }
 
                                 run_prefix=curr_run_prefix;
@@ -733,7 +715,7 @@ pub fn decode<R: io::Read>(
 
                             if prefix1 != PREFIX_RUN
                             {   
-                                curr_lengths[curr_run_prefix as usize] += 2;
+                                curr_lengths[curr_run_prefix as usize] += 3;
                                 break;
                             }
                         }   
@@ -766,7 +748,5 @@ pub fn decode<R: io::Read>(
             }
         }
     }
-    //bitreader.read_bits(8)?;
-    println!("{}", now.elapsed().as_millis());
     Ok(image)
 }
