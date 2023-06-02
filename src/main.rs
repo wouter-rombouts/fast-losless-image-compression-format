@@ -110,7 +110,7 @@ fn main()
             let mut encoder = png::Encoder::new(w, image.width as u32, image.height as u32);
             encoder.set_color(png::ColorType::Rgb);
             //encoder.set_depth(png::BitDepth::One);
-            //encoder.set_compression(png::Compression::Best);
+            encoder.set_compression(png::Compression::Default);
             //encoder.set_filter(png::FilterType::Paeth);
             //encoder.set_adaptive_filter(png::AdaptiveFilterType::Adaptive);
 

@@ -286,13 +286,13 @@ pub fn encode<W: io::Write>(
                     red_run_loop_position=image_header.calc_pos_from(loop_index+red_run_length+1)*channels;
                 }
 
-                if red_run_length > 0
+                if red_run_length > 1
                 {
                     //add red runlength
                     //loop
                     run_count_red+=red_run_length;
                     red_pixel_run_amount+=red_run_length;
-                    red_run_length = red_run_length - 1;
+                    red_run_length = red_run_length - 2;
                     run_cntr+=1;
                     loop
                     {
@@ -326,12 +326,12 @@ pub fn encode<W: io::Write>(
                     green_run_loop_position=image_header.calc_pos_from(loop_index+green_run_length+1)*channels;
                 }
 
-                if green_run_length > 0
+                if green_run_length > 1
                 {
                     //add green runlength
                     //loop
                     run_count_green+=green_run_length;
-                    green_run_length = green_run_length - 1;
+                    green_run_length = green_run_length - 2;
                     run_cntr+=1;
                     loop
                     {
@@ -364,12 +364,12 @@ pub fn encode<W: io::Write>(
                     blue_run_loop_position=image_header.calc_pos_from(loop_index+blue_run_length+1)*channels;
                 }
 
-                if blue_run_length > 0
+                if blue_run_length > 1
                 {
                     //add blue runlength
                     //loop
                     run_count_blue+=blue_run_length;
-                    blue_run_length = blue_run_length - 1;
+                    blue_run_length = blue_run_length - 2;
                     run_cntr+=1;
                     loop
                     {
@@ -615,10 +615,6 @@ pub fn decode<R: io::Read>(
 
                         }
                     }*/
-                    if position== 468447{
-                        dbg!(prefix1);
-
-                    }
                     if prefix1==PREFIX_COLOR_LUMA
                     {
                         
@@ -649,40 +645,46 @@ pub fn decode<R: io::Read>(
                     }
                     else
                     {
-                        //backref 4 bits!
-                        //call after run when needed to get full 4 bits
-                        let mut back_ref=0;
-                        if prefix1==PREFIX_BACK_REF
-                        {
-                            back_ref = decoder.read_next_symbol(SC_BACK_REFS)? as usize;                    
 
-
-                        }
-                        for i in 0..=2
+                        
+                        if prefix1==PREFIX_RGB
                         {
-                            if curr_lengths[i] == 0
-                            {                            
-                                
-                                if prefix1==PREFIX_BACK_REF
-                                {
-                                    output_vec[position+i]=previous16_pixels_unique[previous16_pixels_unique_offset+back_ref][i];
+                            for i in 0..=2
+                            {
+                                if curr_lengths[i] == 0
+                                {              
+                                    //RGB
+                                    output_vec[position+i]=decoder.read_next_symbol(SC_RGB)?;
                                 }
-                                else
-                                {
-                                    if prefix1==PREFIX_RGB
-                                    {
-    
-                                        //RGB
-                                        output_vec[position+i]=decoder.read_next_symbol(SC_RGB)?;
+                                else {
+                                    curr_lengths[i] -= 1;
+                                    output_vec[position+i]=output_vec[prev_position+i];
 
-    
-                                    }
-    
                                 }
                             }
-                            else {
-                                curr_lengths[i] -= 1;
-                                output_vec[position+i]=output_vec[prev_position+i];
+                        }
+                        else
+                        {
+                            //backref 4 bits!
+                            //call after run when needed to get full 4 bits
+                            if prefix1==PREFIX_BACK_REF
+                            {
+                                let back_ref = decoder.read_next_symbol(SC_BACK_REFS)? as usize;                    
+
+                                for i in 0..=2
+                                {
+                                    if curr_lengths[i] == 0
+                                    {                            
+                                        
+                                            output_vec[position+i]=previous16_pixels_unique[previous16_pixels_unique_offset+back_ref][i];
+                                        
+                                    }
+                                    else {
+                                        curr_lengths[i] -= 1;
+                                        output_vec[position+i]=output_vec[prev_position+i];
+
+                                    }
+                                }
 
                             }
                         }
@@ -717,8 +719,9 @@ pub fn decode<R: io::Read>(
                             {
                                 if temp_curr_runcount > 0
                                 {
-                                    curr_lengths[run_prefix as usize] += 1;
+                                    curr_lengths[run_prefix as usize] += 2;
                                 }
+
                                 run_prefix=curr_run_prefix;
                                 temp_curr_runcount=0;
                             }
@@ -730,7 +733,7 @@ pub fn decode<R: io::Read>(
 
                             if prefix1 != PREFIX_RUN
                             {   
-                                curr_lengths[curr_run_prefix as usize] += 1;
+                                curr_lengths[curr_run_prefix as usize] += 2;
                                 break;
                             }
                         }   
