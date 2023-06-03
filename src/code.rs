@@ -85,9 +85,10 @@ pub fn encode<W: io::Write>(
     let mut run_occurrences=[0;8];
     //let mut run_lookup_table=[1,2,3,4,5,6,7,7];
 
+
     for loop_index in 0..image_size/channels
     {
-
+        //TODO cache for calc_pos_from function when values are generated from run lookups
         //TODO move to end, only when run for color was not recetnly added
         //let is_not_in_run=run_count_red ==1 ||run_count_green==1||run_count_blue==1;
         let prev_position = position;
@@ -505,26 +506,38 @@ pub fn decode<R: io::Read>(
     let mut dump= Vec::<u8>::new();
     #[cfg(debug_assertions)]
     io::Read::read_to_end(&mut fs::File::open("dump.bin").unwrap(), &mut dump).ok();
-    let pos_subblock_lookup = [0,channels,2*channels,3*channels,4*channels,
-                               (4+image.width)*channels,(3+image.width)*channels,(2+image.width)*channels,(1+image.width)*channels,(image.width)*channels,
-                               (2*image.width)*channels,(1+2*image.width)*channels,(2+2*image.width)*channels,(3+2*image.width)*channels,(4+2*image.width)*channels,
-                               (4+3*image.width)*channels,(3+3*image.width)*channels,(2+3*image.width)*channels,(1+3*image.width)*channels,(3*image.width)*channels,
-                               (4*image.width)*channels,(1+4*image.width)*channels,(2+4*image.width)*channels,(3+4*image.width)*channels,(4+4*image.width)*channels];
+
+    let mut pos_subblock_lookup =Vec::<usize>::with_capacity(image::SUBBLOCK_HEIGHT_MAX*image::SUBBLOCK_WIDTH_MAX);
+    for y in 0..image::SUBBLOCK_HEIGHT_MAX
+    {
+        for x in 0..image::SUBBLOCK_WIDTH_MAX
+        {
+            pos_subblock_lookup.push(channels*(y*image.width+if y%2==1 {image::SUBBLOCK_WIDTH_MAX-x-1}else{x}));
+        }
+    }
+    let mut pos_subblock_lookup_alt =Vec::<usize>::with_capacity(image::SUBBLOCK_HEIGHT_MAX*image::SUBBLOCK_WIDTH_MAX);
+    for y in 0..image::SUBBLOCK_HEIGHT_MAX
+    {
+        for x in 0..image::SUBBLOCK_WIDTH_MAX
+        {
+            pos_subblock_lookup_alt.push(channels*((image::SUBBLOCK_HEIGHT_MAX-y-1) * image.width+if y%2==0 {image::SUBBLOCK_WIDTH_MAX-x-1}else{x}));
+        }
+    }
+
     let mut pos_subblock_xleftover_lookup: Vec<usize>;
     let mut pos_subblock_yleftover_lookup: Vec<usize>;
     let mut list_of_subblocks_in_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
     let mut list_of_subblocks_in_bottom_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
     let mut pos_subblock_xyleftover_lookup: Vec<usize>;
-    for _ in 0..image.subblocks_in_width
+    for n in 0..image.subblocks_in_width
     {
-        list_of_subblocks_in_widthblock.push(&pos_subblock_lookup);
+        list_of_subblocks_in_widthblock.push(if n%2==0{&pos_subblock_lookup}else{&pos_subblock_lookup_alt});
     }
     if image.width_subblock_leftover>0
     {
         pos_subblock_xleftover_lookup=Vec::with_capacity(image.width_subblock_leftover*image::SUBBLOCK_HEIGHT_MAX);
         for h in 0..image::SUBBLOCK_HEIGHT_MAX
         {
-            //pos_subblock_xleftover_lookup.extend((0..image.width_subblock_leftover).map(|i|(h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels));
             for i in 0..image.width_subblock_leftover
             {
                 pos_subblock_xleftover_lookup.push((h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels);
