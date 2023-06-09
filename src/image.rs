@@ -107,6 +107,7 @@ mod tests {
 
         let image = crate::image::Image::new(4000,3000,3);
         debug_assert_eq!(image.calc_pos_from(140225),468147/3);
+        debug_assert_eq!(image.calc_pos_from(140480),456285/3);
 
         
     }    
