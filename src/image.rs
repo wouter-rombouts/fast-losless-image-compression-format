@@ -84,13 +84,15 @@ impl Image
         if subblock_mod2==0
         {
             offset+=remainder/subblock_width*self.width;
-            offset+=if amount_of_subrows_mod2==1{subblock_width-(remainder%subblock_width)-1}else{remainder%subblock_width};
+            //offset+=if amount_of_subrows_mod2==1{subblock_width-(remainder%subblock_width)-1}else{remainder%subblock_width};
         }
         else
         {
             offset+=(subblock_height-remainder/subblock_width-1)*self.width;
-            offset+=if amount_of_subrows_mod2==0{subblock_width-(remainder%subblock_width)-1}else{remainder%subblock_width};
+            //offset+=if amount_of_subrows_mod2==0{subblock_width-(remainder%subblock_width)-1}else{remainder%subblock_width};
         }
+        
+        offset+=if amount_of_subrows_mod2==1{subblock_width-(remainder%subblock_width)-1}else{remainder%subblock_width};
         //
         //remainder=remainder%subblock_width;
         //add last row
@@ -106,8 +108,8 @@ mod tests {
     fn check_positions() {
 
         let image = crate::image::Image::new(4000,3000,3);
-        debug_assert_eq!(image.calc_pos_from(140225),468147/3);
-        debug_assert_eq!(image.calc_pos_from(140480),456285/3);
+        debug_assert_eq!(image.calc_pos_from(25),48015/3);
+        debug_assert_eq!(image.calc_pos_from(49),27/3);
 
         
     }    

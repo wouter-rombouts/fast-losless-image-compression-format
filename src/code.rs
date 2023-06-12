@@ -540,7 +540,7 @@ pub fn decode<R: io::Read>(
     {
         for x in 0..image::SUBBLOCK_WIDTH_MAX
         {
-            pos_subblock_lookup_alt.push(channels*((image::SUBBLOCK_HEIGHT_MAX-y-1) * image.width+if y%2==0 {image::SUBBLOCK_WIDTH_MAX-x-1}else{x}));
+            pos_subblock_lookup_alt.push(channels*((image::SUBBLOCK_HEIGHT_MAX-y-1) * image.width+if y%2==1 {image::SUBBLOCK_WIDTH_MAX-x-1}else{x}));
         }
     }
 
