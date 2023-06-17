@@ -183,6 +183,13 @@ impl<R:Read> DecodeInput<'_,R>
         let newcode=self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].0)as usize;
         Ok(&self.symbols_lookup[lookup_type as usize].1[self.symbols_lookup[lookup_type as usize].1.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {self.bitreader.bit_offset+=i.aob;i.symbol})
     }
+
+    pub fn peek_next_symbol( &mut self, lookup_type : u8 )
+    -> Result<(u8,u8), io::Error>
+    {
+        let newcode=self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].0)as usize;
+        Ok(&self.symbols_lookup[lookup_type as usize].1[self.symbols_lookup[lookup_type as usize].1.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {(i.symbol,i.aob)})
+    }
 }
 #[derive(Eq)]
 pub struct TreeNode
