@@ -171,32 +171,18 @@ pub fn encode<W: io::Write>(
                    (run_count_blue == 1&&list_of_color_diffs[2]>=-4&&list_of_color_diffs[2]<4||run_count_blue>1)
                 {
                     
-                    if loop_index <=140230
-                    {
-                        dbg!(position);
-                    }
                     data.add_symbolu8(PREFIX_SMALL_DIFF, SC_PREFIXES);
                     if run_count_red == 1
                     {                    
-                        if loop_index <=140230
-                        {
-                            dbg!((4+list_of_color_diffs[0]) as u8);
-                        }
+
                         data.add_symbolu8((4+list_of_color_diffs[0]) as u8, SC_SMALL_DIFF);
                     }
                     if run_count_green == 1
-                    {if loop_index <=140230
-                        {
-                            dbg!((4+list_of_color_diffs[1]) as u8);
-                        }
+                    {
                         data.add_symbolu8((4+list_of_color_diffs[1]) as u8, SC_SMALL_DIFF);
                     }
                     if run_count_blue == 1
                     {
-                        if loop_index <=140230
-                        {
-                            dbg!((4+list_of_color_diffs[2]) as u8);
-                        }
                         data.add_symbolu8((4+list_of_color_diffs[2]) as u8, SC_SMALL_DIFF);
                     }
                 }
@@ -573,7 +559,9 @@ pub fn decode<R: io::Read>(
     decoder.add_input_type(8);
     //6==SC_SMALL_DIFF
     decoder.add_input_type(8);
+    
     decoder.read_header_into_tree().unwrap();
+
 
     //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
     //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
@@ -583,11 +571,11 @@ pub fn decode<R: io::Read>(
     let mut previous16_pixels_unique_offset = 0;
     let mut previous16_pixels_unique : [[u8;3];64] = [[0,0,0];64];
     let mut run_values=[0u8;3];
-    let mut prev_run_count=0;
 
     let mut prev_luma_base_diff=0;
     let mut prev_luma_other_diff1=0;
     let mut prev_luma_other_diff2=0;
+    //let mut temp_time=0;
     //curr_lengths[0] is red
     //curr_lengths[1] is green
     //curr_lengths[2] is blue
@@ -597,7 +585,7 @@ pub fn decode<R: io::Read>(
     let mut dump= Vec::<u8>::new();
     #[cfg(debug_assertions)]
     io::Read::read_to_end(&mut fs::File::open("dump.bin").unwrap(), &mut dump).ok();
-
+    
     let mut pos_subblock_lookup =Vec::<usize>::with_capacity(image::SUBBLOCK_HEIGHT_MAX*image::SUBBLOCK_WIDTH_MAX);
     for y in 0..image::SUBBLOCK_HEIGHT_MAX
     {
@@ -683,7 +671,7 @@ pub fn decode<R: io::Read>(
         for x in 0..list_of_subblocks_in_heightblock[y].len()
         {
             for i in 0..list_of_subblocks_in_heightblock[y][x].len()
-            { 
+            {
                 //y, then x
                 prev_pos=position;
                 position = channels*(y*image.width_block_size+x*image::SUBBLOCK_WIDTH_MAX)+list_of_subblocks_in_heightblock[y][x][i];
@@ -691,6 +679,7 @@ pub fn decode<R: io::Read>(
                 if curr_lengths.iter().any(|&x| x == 0)
                 {
 
+                    //let headertime = Instant::now();
                     if prefix1==PREFIX_SMALL_DIFF
                     {      
                         if curr_lengths[0]==0
@@ -783,6 +772,7 @@ pub fn decode<R: io::Read>(
                     
 
                     }
+                    //temp_time+=headertime.elapsed().as_nanos();
                     prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
                      if prefix1 == PREFIX_RED_RUN
                      {
@@ -852,7 +842,6 @@ pub fn decode<R: io::Read>(
                         previous16_pixels_unique_offset=0;
                     }
                     //dbg!(prefix1);
-                    
                 }
                 else
                 {
@@ -880,5 +869,6 @@ pub fn decode<R: io::Read>(
             }
         }
     }
+    //println!("temp_time:{}: ",temp_time);
     Ok(image)
 }
