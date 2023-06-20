@@ -176,19 +176,20 @@ impl<R:Read> DecodeInput<'_,R>
         }
         Ok(())
     }
-
     pub fn read_next_symbol( &mut self, lookup_type : u8 )
     -> Result<u8, io::Error>
     {
-        let newcode=self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].0)as usize;
-        Ok(&self.symbols_lookup[lookup_type as usize].1[self.symbols_lookup[lookup_type as usize].1.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {self.bitreader.bit_offset+=i.aob;i.symbol})
-    }
-
-    pub fn peek_next_symbol( &mut self, lookup_type : u8 )
-    -> Result<(u8,u8), io::Error>
-    {
-        let newcode=self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].0)as usize;
-        Ok(&self.symbols_lookup[lookup_type as usize].1[self.symbols_lookup[lookup_type as usize].1.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {(i.symbol,i.aob)})
+        match self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].0)
+        {
+            Ok(newcode)=>
+            {
+                Ok(&self.symbols_lookup[lookup_type as usize].1[self.symbols_lookup[lookup_type as usize].1.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {self.bitreader.bit_offset+=i.aob;i.symbol})
+            },
+            Err(e)=>
+            {
+                return Err(e);
+            }
+        }
     }
 }
 #[derive(Eq)]
@@ -306,8 +307,8 @@ mod tests {
         {
             for _j in 0..i*10
             {
-                let res =decoder.read_next_symbol(0).unwrap();
-                debug_assert_eq!(res,(i) as u8,"i:{}",i);
+                let res =decoder.read_next_symbol(0);
+                debug_assert_eq!(res.unwrap(),(i) as u8,"i:{}",i);
             }
         }
         println!("decoder speed: {}", now.elapsed().as_millis());

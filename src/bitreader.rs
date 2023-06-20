@@ -80,18 +80,23 @@ impl<R: io::Read> Bitreader<'_,R>
             &mut self,
        amount_of_bits : u8
     )
-    -> u32
+    -> Result<usize, io::Error>
     {
         let aob_rev = 32-amount_of_bits;
 
         //if we need to read more than what is available in the cache
         while self.bit_offset > aob_rev
         {
-            self.reader.read_exact(&mut self.buffer).expect("error reading the io source");
-            self.bit_offset-=8;
-            self.cache=(self.cache<<8)+ self.buffer[0] as u32;
+            match self.reader.read_exact(&mut self.buffer)
+            {
+                Err(e)=>{return Err(e);},
+                Ok(_)=>{
+                    self.bit_offset-=8;
+                    self.cache=(self.cache<<8)+ self.buffer[0] as u32;
+                }
+            }
         }
-        (self.cache<<self.bit_offset)>>aob_rev
+        Ok(((self.cache<<self.bit_offset)>>aob_rev)as usize)
     }
 }
 
@@ -131,7 +136,7 @@ mod tests {
 
         let test = myreader.read_24bits(9);
         debug_assert_eq!(test,0b111111001);
-        let test = myreader.read_24bits_noclear(9);
+        let test = myreader.read_24bits_noclear(9).unwrap();
         debug_assert_eq!(test,0b111110011);
 
         let test = myreader.read_24bits(9);
