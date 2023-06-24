@@ -124,10 +124,22 @@ pub struct LookupItem
     symbol : u8,
     aob : u8
 }
+
+pub struct SymbolstreamLookup
+{
+    //does this need to be saved?
+    max_aob : u8,
+    //size is 2^max_aob
+    symbol_lookup : Vec<u8>,
+    //index is value from symbol_lookup
+    aob_lookup : Vec<u8>
+}
+
 pub struct DecodeInput<'a,R:Read>
 {
     pub bitreader : Bitreader<'a,R>,
-    symbols_lookup : Vec<(u8,Vec<LookupItem>)>,
+    symbols_lookup : Vec<SymbolstreamLookup>,
+
 
     //max_aob : u8
 }
@@ -137,13 +149,13 @@ impl<R:Read> DecodeInput<'_,R>
 
     pub fn add_input_type( &mut self, size : usize )
     {
-        self.symbols_lookup.push((0, Vec::<LookupItem>::with_capacity(size)));
+        self.symbols_lookup.push(SymbolstreamLookup{max_aob:0, symbol_lookup : Vec::new(),aob_lookup:Vec::<u8>::with_capacity(size)});
     }
 
     pub fn new( bitreader : Bitreader<'_,R> )
     -> DecodeInput<'_,R>
     {
-        DecodeInput{ bitreader, symbols_lookup:Vec::<(u8, Vec<LookupItem>)>::new()}
+        DecodeInput{ bitreader, symbols_lookup:Vec::<SymbolstreamLookup>::new()}
     }
 
     pub fn read_header_into_tree( &mut self )
@@ -151,39 +163,44 @@ impl<R:Read> DecodeInput<'_,R>
     {
         for aob_vec in self.symbols_lookup.iter_mut()
         {
-            let amount_of_symbols=aob_vec.1.capacity();
-            aob_vec.0=self.bitreader.read_bitsu8(5)?;
-            let max_aob_bits = aob_vec.0.next_power_of_two().count_zeros() as u8;
+            let amount_of_symbols=aob_vec.aob_lookup.capacity();
+            aob_vec.max_aob=self.bitreader.read_bitsu8(5)?;
+            let max_aob_bits = aob_vec.max_aob.next_power_of_two().count_zeros() as u8;
 
             let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 0, code: 0 };amount_of_symbols];
+            aob_vec.aob_lookup=Vec::with_capacity(amount_of_symbols);
             for i in 0..amount_of_symbols
             {
                 bcodes[i].aob=self.bitreader.read_bitsu8(max_aob_bits)?;
+                aob_vec.aob_lookup.push(bcodes[i].aob);
             }
             
             //bitshift codes
             //add symbols and order by smallest aob,largest code value
             amount_of_bits_to_bcodes(&mut bcodes);
-
-            //self.symbols_lookup=Vec::with_capacity(amount_of_symbols);
+            aob_vec.symbol_lookup=vec![0;1<<aob_vec.max_aob as usize];
             for (i,code_symbol) in bcodes.iter().enumerate()
             {
-                aob_vec.1.push(LookupItem{ code: code_symbol.code<<(aob_vec.0-code_symbol.aob) as usize, symbol: i as u8, aob: code_symbol.aob });
+                let code_shifted=code_symbol.code<<(aob_vec.max_aob-code_symbol.aob);
+                let code_shifted_plus1=(code_symbol.code+1)<<(aob_vec.max_aob-code_symbol.aob);
+                for sl_index in code_shifted..code_shifted_plus1
+                {
+                    aob_vec.symbol_lookup[sl_index]=i as u8;
+                }
             }
-            //new values: bitshifted code and the symbol
-            //sorted by bitshifted symbols, which is unique
-            aob_vec.1.sort_unstable_by(|a, b|b.cmp(a));
         }
         Ok(())
     }
     pub fn read_next_symbol( &mut self, lookup_type : u8 )
     -> Result<u8, io::Error>
     {
-        match self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].0)
+        match self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].max_aob)
         {
             Ok(newcode)=>
             {
-                Ok(&self.symbols_lookup[lookup_type as usize].1[self.symbols_lookup[lookup_type as usize].1.partition_point(|lookupitem| newcode < lookupitem.code)]).map(|i| {self.bitreader.bit_offset+=i.aob;i.symbol})
+                let symbol = self.symbols_lookup[lookup_type as usize].symbol_lookup[newcode];
+                self.bitreader.bit_offset+=self.symbols_lookup[lookup_type as usize].aob_lookup[symbol as usize];
+                Ok(symbol)
             },
             Err(e)=>
             {
