@@ -126,7 +126,7 @@ pub struct LookupItem
     symbol : u8,
     aob : u8
 }
-
+#[derive(Clone)]
 pub struct SymbolstreamLookup
 {
     //does this need to be saved?
@@ -136,6 +136,16 @@ pub struct SymbolstreamLookup
     //index is value from symbol_lookup
     aob_lookup : Vec<SymbolLookupItem>
 }
+
+impl SymbolstreamLookup
+{
+    pub fn new( size : usize )
+    ->SymbolstreamLookup
+    {
+        SymbolstreamLookup{max_aob:0, symbol_lookup : Vec::new(),aob_lookup:Vec::<SymbolLookupItem>::with_capacity(size)}
+    }
+}
+
 #[derive(Clone,Copy)]
 pub struct SymbolLookupItem
 {
@@ -146,31 +156,23 @@ pub struct SymbolLookupItem
 pub struct DecodeInput<'a,R:Read>
 {
     pub bitreader : Bitreader<'a,R>,
-    symbols_lookup : Vec<SymbolstreamLookup>,
-
-
     //max_aob : u8
 }
 
 impl<R:Read> DecodeInput<'_,R>
 {
 
-    pub fn add_input_type( &mut self, size : usize )
-    {
-        self.symbols_lookup.push(SymbolstreamLookup{max_aob:0, symbol_lookup : Vec::new(),aob_lookup:Vec::<SymbolLookupItem>::with_capacity(size)});
-    }
+
 
     pub fn new( bitreader : Bitreader<'_,R> )
     -> DecodeInput<'_,R>
     {
-        DecodeInput{ bitreader, symbols_lookup:Vec::<SymbolstreamLookup>::new()}
+        DecodeInput{ bitreader}
     }
 
-    pub fn read_header_into_tree( &mut self )
+    pub fn read_header_into_tree( &mut self, aob_vec : &mut SymbolstreamLookup )
     -> Result<(), io::Error>
     {
-        for aob_vec in self.symbols_lookup.iter_mut()
-        {
             let amount_of_symbols=aob_vec.aob_lookup.capacity();
             aob_vec.max_aob=self.bitreader.read_bitsu8(5)?;
             let max_aob_bits = aob_vec.max_aob.next_power_of_two().count_zeros() as u8;
@@ -199,17 +201,16 @@ impl<R:Read> DecodeInput<'_,R>
                     aob_vec.symbol_lookup[sl_index]=item.clone();
                 }
             }
-        }
         Ok(())
     }
-    pub fn read_next_symbol( &mut self, lookup_type : u8 )
+    pub fn read_next_symbol( &mut self, lookup : &SymbolstreamLookup )
     -> Result<u8, io::Error>
     {
-        match self.bitreader.read_24bits_noclear(self.symbols_lookup[lookup_type as usize].max_aob)
+        match self.bitreader.read_24bits_noclear(lookup.max_aob)
         {
             Ok(newcode)=>
             {
-                let lookup = *self.symbols_lookup[lookup_type as usize].symbol_lookup[newcode];
+                let lookup = *lookup.symbol_lookup[newcode];
                 self.bitreader.bit_offset+=lookup.aob;
                 Ok(lookup.symbol)
             },
@@ -327,15 +328,15 @@ mod tests {
         let mut decoder = super::DecodeInput::new(  crate::bitreader::Bitreader::new( &mut binding ));
         
         let now = std::time::Instant::now();
-        decoder.add_input_type(SIZE_ARR);
-        decoder.read_header_into_tree().unwrap();
+        let mut symbol_lookup = crate::hfe::SymbolstreamLookup::new(SIZE_ARR);
+        decoder.read_header_into_tree(&mut symbol_lookup).unwrap();
         //dbg!(decoder.symbols_lookup);
         //TODO: opti decoder speed
         for i in 0usize..SIZE_ARR
         {
             for _j in 0..i*10
             {
-                let res =decoder.read_next_symbol(0);
+                let res =decoder.read_next_symbol(&symbol_lookup);
                 debug_assert_eq!(res.unwrap(),(i) as u8,"i:{}",i);
             }
         }

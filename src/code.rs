@@ -2,7 +2,7 @@ const NICE: &[u8] = "nice".as_bytes();
 use crate::bitwriter;
 use crate::image::{Image, self};
 use std::{time::Instant, *};
-use crate::hfe::{EncodedOutput, self};
+use crate::hfe::{EncodedOutput, self, SymbolstreamLookup};
 
 use crate::{bitreader::Bitreader, bitwriter::Bitwriter};
 //pub(crate) const PREFIX_RUN: u8 = 2;
@@ -546,27 +546,33 @@ pub fn decode<R: io::Read>(
     let mut decoder=  hfe::DecodeInput::new(Bitreader::new(image_reader));
 
     //0==PREFIX_RGB
-    decoder.add_input_type(256);
+    let mut rgb_lookup = SymbolstreamLookup::new(256);
     //1==SC_PREFIXES
-    decoder.add_input_type(6);
+    let mut prefix_lookup = SymbolstreamLookup::new(6);
     //2==SC_RUN_LENGTHS
-    decoder.add_input_type(8);
+    let mut runlength_lookup = SymbolstreamLookup::new(8);
     //3==SC_LUMA_BASE_DIFF
-    decoder.add_input_type(64);
+    let mut luma_base_diff_lookup = SymbolstreamLookup::new(64);
     //4==SC_LUMA_OTHER_DIFF
-    decoder.add_input_type(16);
+    let mut luma_other_diff_lookup = SymbolstreamLookup::new(16);
     //5==SC_LUMA_BACK_REF
-    decoder.add_input_type(8);
+    let mut luma_backref_lookup = SymbolstreamLookup::new(8);
     //6==SC_SMALL_DIFF
-    decoder.add_input_type(8);
+    let mut small_diff_lookup = SymbolstreamLookup::new(8);
     
-    decoder.read_header_into_tree().unwrap();
+    decoder.read_header_into_tree(&mut rgb_lookup).unwrap();
+    decoder.read_header_into_tree(&mut prefix_lookup).unwrap();
+    decoder.read_header_into_tree(&mut runlength_lookup).unwrap();
+    decoder.read_header_into_tree(&mut luma_base_diff_lookup).unwrap();
+    decoder.read_header_into_tree(&mut luma_other_diff_lookup).unwrap();
+    decoder.read_header_into_tree(&mut luma_backref_lookup).unwrap();
+    decoder.read_header_into_tree(&mut small_diff_lookup).unwrap();
 
 
     //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
     //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
 
-    let mut prefix1=decoder.read_next_symbol(SC_PREFIXES)?;
+    let mut prefix1=decoder.read_next_symbol(&prefix_lookup)?;
     //let width = width as usize;
     let mut previous16_pixels_unique_offset = 0;
     let mut previous16_pixels_unique : [[u8;3];64] = [[0,0,0];64];
@@ -684,7 +690,7 @@ pub fn decode<R: io::Read>(
                     {      
                         if curr_lengths[0]==0
                         {
-                            output_vec[position]=(decoder.read_next_symbol(SC_SMALL_DIFF)? as i16-4 +output_vec[prev_pos] as i16)as u8;
+                            output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos] as i16)as u8;
                         }
                         else
                         {
@@ -693,7 +699,7 @@ pub fn decode<R: io::Read>(
                         }
                         if curr_lengths[1]==0
                         {
-                            output_vec[position+1]=(decoder.read_next_symbol(SC_SMALL_DIFF)? as i16-4 +output_vec[prev_pos+1] as i16)as u8;
+                            output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+1] as i16)as u8;
                         }
                         else
                         {
@@ -702,7 +708,7 @@ pub fn decode<R: io::Read>(
                         }
                         if curr_lengths[2]==0
                         {
-                            output_vec[position+2]=(decoder.read_next_symbol(SC_SMALL_DIFF)? as i16-4 +output_vec[prev_pos+2] as i16)as u8;
+                            output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+2] as i16)as u8;
                         }
                         else
                         {
@@ -716,8 +722,8 @@ pub fn decode<R: io::Read>(
                     
                         if prefix1==PREFIX_COLOR_LUMA
                         {
-                            let backref = decoder.read_next_symbol(SC_LUMA_BACK_REF)?;
-                            prev_luma_base_diff=decoder.read_next_symbol(SC_LUMA_BASE_DIFF)? as i16-32;
+                            let backref = decoder.read_next_symbol(&luma_backref_lookup)?;
+                            prev_luma_base_diff=decoder.read_next_symbol(&luma_base_diff_lookup)? as i16-32;
 
                             output_vec[position+1]=(prev_luma_base_diff + (previous16_pixels_unique[backref as usize][1] as i16)) as u8;
 
@@ -734,7 +740,7 @@ pub fn decode<R: io::Read>(
                             }
                             else
                             {
-                                prev_luma_other_diff1=decoder.read_next_symbol(SC_LUMA_OTHER_DIFF)? as i16-8;
+                                prev_luma_other_diff1=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position]=(prev_luma_other_diff1 + prev_luma_base_diff+(previous16_pixels_unique[backref as usize][0] as i16)) as u8;
                             }
                             if curr_lengths[2]>0
@@ -745,7 +751,7 @@ pub fn decode<R: io::Read>(
                             }
                             else
                             {
-                                prev_luma_other_diff2=decoder.read_next_symbol(SC_LUMA_OTHER_DIFF)? as i16-8;
+                                prev_luma_other_diff2=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position+2]=(prev_luma_other_diff2 + prev_luma_base_diff+(previous16_pixels_unique[backref as usize][2] as i16)) as u8;
                             }
 
@@ -757,7 +763,7 @@ pub fn decode<R: io::Read>(
                                 if curr_lengths[i] == 0
                                 {              
                                     //RGB
-                                    output_vec[position+i]=decoder.read_next_symbol(SC_RGB)?.wrapping_add(output_vec[prev_pos+i]);
+                                    output_vec[position+i]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+i]);
                                 }
                                 else 
                                 {
@@ -773,16 +779,16 @@ pub fn decode<R: io::Read>(
 
                     }
                     //temp_time+=headertime.elapsed().as_nanos();
-                    prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
+                    prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                      if prefix1 == PREFIX_RED_RUN
                      {
                         let mut temp_curr_runcount: u8=0;
                         loop
                         {  
                             //run lengths
-                            curr_lengths[PREFIX_RED_RUN as usize] +=(decoder.read_next_symbol(SC_RUN_LENGTHS)? as usize) << temp_curr_runcount;
+                            curr_lengths[PREFIX_RED_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
                             temp_curr_runcount += 3;
-                            prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
+                            prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
 
                             if prefix1 != PREFIX_RED_RUN
                             {   
@@ -800,9 +806,9 @@ pub fn decode<R: io::Read>(
                             loop
                             {  
                                 //run lengths
-                                curr_lengths[PREFIX_GREEN_RUN as usize] +=(decoder.read_next_symbol(SC_RUN_LENGTHS)? as usize) << temp_curr_runcount;
+                                curr_lengths[PREFIX_GREEN_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
                                 temp_curr_runcount += 3;
-                                prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
+                                prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
 
                                 if prefix1 != PREFIX_GREEN_RUN
                                 {   
@@ -820,9 +826,9 @@ pub fn decode<R: io::Read>(
                             loop
                             {  
                                 //run lengths
-                                curr_lengths[PREFIX_BLUE_RUN as usize] +=(decoder.read_next_symbol(SC_RUN_LENGTHS)? as usize) << temp_curr_runcount;
+                                curr_lengths[PREFIX_BLUE_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
                                 temp_curr_runcount += 3;
-                                prefix1 = decoder.read_next_symbol(SC_PREFIXES)?;
+                                prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
 
                                 if prefix1 != PREFIX_BLUE_RUN
                                 {   
