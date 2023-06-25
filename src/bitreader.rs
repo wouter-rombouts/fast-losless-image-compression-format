@@ -87,7 +87,7 @@ impl<R: io::Read> Bitreader<'_,R>
         //if we need to read more than what is available in the cache
         while self.bit_offset > aob_rev
         {
-            match self.reader.read_exact(&mut self.buffer)
+            match self.reader.read(&mut self.buffer)
             {
                 Err(e)=>{return Err(e);},
                 Ok(_)=>{
