@@ -132,7 +132,7 @@ pub struct SymbolstreamLookup
     //does this need to be saved?
     max_aob : u8,
     //size is 2^max_aob
-    symbol_lookup : Vec<Rc< SymbolLookupItem>>,
+    symbol_lookup : Vec<SymbolLookupItem>,
     //index is value from symbol_lookup
     aob_lookup : Vec<SymbolLookupItem>
 }
@@ -188,17 +188,16 @@ impl<R:Read> DecodeInput<'_,R>
             //bitshift codes
             //add symbols and order by smallest aob,largest code value
             amount_of_bits_to_bcodes(&mut bcodes);
-            aob_vec.symbol_lookup=vec![Rc::new(SymbolLookupItem{ symbol: 0, aob: 0 });(1<<aob_vec.max_aob as usize)];
+            aob_vec.symbol_lookup=vec![SymbolLookupItem{ symbol: 0, aob: 0 };(1<<aob_vec.max_aob as usize)];
 
             for (i,code_symbol) in bcodes.iter().enumerate()
             {
                 let code_shifted=code_symbol.code<<(aob_vec.max_aob-code_symbol.aob);
                 let code_shifted_plus1=(code_symbol.code+1)<<(aob_vec.max_aob-code_symbol.aob);
-                let item =Rc::new(aob_vec.aob_lookup[i]);
                 for sl_index in code_shifted..code_shifted_plus1
                 {
                     
-                    aob_vec.symbol_lookup[sl_index]=item.clone();
+                    aob_vec.symbol_lookup[sl_index]=aob_vec.aob_lookup[i];
                 }
             }
         Ok(())
@@ -210,7 +209,7 @@ impl<R:Read> DecodeInput<'_,R>
         {
             Ok(newcode)=>
             {
-                let lookup = *lookup.symbol_lookup[newcode];
+                let lookup = lookup.symbol_lookup[newcode];
                 self.bitreader.bit_offset+=lookup.aob;
                 Ok(lookup.symbol)
             },
