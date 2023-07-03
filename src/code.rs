@@ -686,41 +686,39 @@ pub fn decode<R: io::Read>(
                 {
 
                     //let headertime = Instant::now();
-                    if prefix1==PREFIX_SMALL_DIFF
-                    {      
-                        if curr_lengths[0]==0
-                        {
-                            output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos] as i16)as u8;
-                        }
-                        else
-                        {
-                            curr_lengths[0] -= 1;
-                            output_vec[position]=run_values[0];
-                        }
-                        if curr_lengths[1]==0
-                        {
-                            output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+1] as i16)as u8;
-                        }
-                        else
-                        {
-                            curr_lengths[1] -= 1;
-                            output_vec[position+1]=run_values[1];
-                        }
-                        if curr_lengths[2]==0
-                        {
-                            output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+2] as i16)as u8;
-                        }
-                        else
-                        {
-                            curr_lengths[2] -= 1;
-                            output_vec[position+2]=run_values[2];
-                        }
-                    }
-                    else
+                    match prefix1
                     {
-
-                    
-                        if prefix1==PREFIX_COLOR_LUMA
+                        PREFIX_SMALL_DIFF=>
+                        {
+                            if curr_lengths[0]==0
+                            {
+                                output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos] as i16)as u8;
+                            }
+                            else
+                            {
+                                curr_lengths[0] -= 1;
+                                output_vec[position]=run_values[0];
+                            }
+                            if curr_lengths[1]==0
+                            {
+                                output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+1] as i16)as u8;
+                            }
+                            else
+                            {
+                                curr_lengths[1] -= 1;
+                                output_vec[position+1]=run_values[1];
+                            }
+                            if curr_lengths[2]==0
+                            {
+                                output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+2] as i16)as u8;
+                            }
+                            else
+                            {
+                                curr_lengths[2] -= 1;
+                                output_vec[position+2]=run_values[2];
+                            }
+                        }
+                        PREFIX_COLOR_LUMA=>
                         {
                             let backref = decoder.read_next_symbol(&luma_backref_lookup)?;
                             prev_luma_base_diff=decoder.read_next_symbol(&luma_base_diff_lookup)? as i16-32;
@@ -754,9 +752,8 @@ pub fn decode<R: io::Read>(
                                 prev_luma_other_diff2=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position+2]=(prev_luma_other_diff2 + prev_luma_base_diff+(previous16_pixels_unique[backref as usize][2] as i16)) as u8;
                             }
-
                         }
-                        else
+                        _=>
                         {
                             for i in 0..=2
                             {
@@ -772,81 +769,63 @@ pub fn decode<R: io::Read>(
 
                                 }
                             }
-                            
-
                         }
-                    
 
                     }
+                    
+
                     //temp_time+=headertime.elapsed().as_nanos();
                     prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
-                     if prefix1 == PREFIX_RED_RUN
-                     {
-                        let mut temp_curr_runcount: u8=0;
-                        loop
-                        {  
-                            //run lengths
-                            curr_lengths[PREFIX_RED_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
-                            temp_curr_runcount += 3;
-                            prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
+                    let mut temp_curr_runcount: u8=0;
+                    while prefix1 == PREFIX_RED_RUN
+                    {
+                        //run lengths
+                        curr_lengths[PREFIX_RED_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
+                        temp_curr_runcount += 3;
+                        prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
+                    }
+                    if temp_curr_runcount>0
+                    {
 
-                            if prefix1 != PREFIX_RED_RUN
-                            {   
-                                curr_lengths[PREFIX_RED_RUN as usize] += 3;
-                                
-                                run_values[0]=output_vec[position];
-                                break;
-                            }
-                        }   
-                     }
-                     
-                        if prefix1 == PREFIX_GREEN_RUN
-                        {
-                            let mut temp_curr_runcount: u8=0;
-                            loop
-                            {  
-                                //run lengths
-                                curr_lengths[PREFIX_GREEN_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
-                                temp_curr_runcount += 3;
-                                prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
+                        curr_lengths[PREFIX_RED_RUN as usize] += 3;
+                                    
+                        run_values[0]=output_vec[position];
+                        temp_curr_runcount=0;
+                    }
+                    while prefix1 == PREFIX_GREEN_RUN
+                    {  
+                        //run lengths
+                        curr_lengths[PREFIX_GREEN_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
+                        temp_curr_runcount += 3;
+                        prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
+                    }   
+                
+                    if temp_curr_runcount>0
+                    {
 
-                                if prefix1 != PREFIX_GREEN_RUN
-                                {   
-                                    curr_lengths[PREFIX_GREEN_RUN as usize] += 3;
-                                    run_values[1]=output_vec[position+1];
-                                    break;
-                                }
-                            }   
-                        }
-                     
-                    
-                        if prefix1 == PREFIX_BLUE_RUN
-                        {
-                            let mut temp_curr_runcount: u8=0;
-                            loop
-                            {  
-                                //run lengths
-                                curr_lengths[PREFIX_BLUE_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
-                                temp_curr_runcount += 3;
-                                prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
+                        curr_lengths[PREFIX_GREEN_RUN as usize] += 3;
+                                    
+                        run_values[1]=output_vec[position+1];
+                        temp_curr_runcount=0;
+                    }
+                    while prefix1 == PREFIX_BLUE_RUN
+                    {  
+                        //run lengths
+                        curr_lengths[PREFIX_BLUE_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
+                        temp_curr_runcount += 3;
+                        prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
+                    }   
+                    if temp_curr_runcount>0
+                    {
 
-                                if prefix1 != PREFIX_BLUE_RUN
-                                {   
-                                    curr_lengths[PREFIX_BLUE_RUN as usize] += 3;
-                                    run_values[2]=output_vec[position+2];
-                                    break;
-                                }
-                            }   
-                        }
-                    
+                        curr_lengths[PREFIX_BLUE_RUN as usize] += 3;
+                                    
+                        run_values[2]=output_vec[position+2];
+                    }
 
                     previous16_pixels_unique[previous16_pixels_unique_offset]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
-                    previous16_pixels_unique_offset+=1;
-                    
-                    if previous16_pixels_unique_offset==8
-                    {
-                        previous16_pixels_unique_offset=0;
-                    }
+                    previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
+
                     //dbg!(prefix1);
                 }
                 else
