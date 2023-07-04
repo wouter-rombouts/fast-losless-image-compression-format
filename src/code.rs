@@ -93,7 +93,11 @@ pub fn encode<W: io::Write>(
 
     //let mut run_lookup_table=[1,2,3,4,5,6,7,7];
 
-
+    //TODO add symbols as normal, but also add the symbols for other streams
+    // calculate aob for each stream at the end, based on preferred stream(same value as before)
+    //reassign pixel to different preferred stream if smaller aob is found
+    //repeat until satisfied with result
+    //add result to output stream
     for loop_index in 0..image_size/channels
     {
         //TODO cache for calc_pos_from function when values are generated from run lookups
@@ -250,6 +254,8 @@ pub fn encode<W: io::Write>(
                         }
                         luma_occurences+=1;
                         is_luma=true;
+                        previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
+                        previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                         break;
                     }
                     //TODO after loop is done
@@ -281,18 +287,13 @@ pub fn encode<W: io::Write>(
                         data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
                     }
+                    previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
+                    previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                 }
                 }
                 /* }
                 }}*/
                 //write to unique previous n cache
-                previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
-                previous16_pixels_unique_offset+=1;
-
-                if previous16_pixels_unique_offset==8
-                {
-                    previous16_pixels_unique_offset=0;
-                }
                 
             
             }            
@@ -752,6 +753,8 @@ pub fn decode<R: io::Read>(
                                 prev_luma_other_diff2=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position+2]=(prev_luma_other_diff2 + prev_luma_base_diff+(previous16_pixels_unique[backref as usize][2] as i16)) as u8;
                             }
+                            previous16_pixels_unique[previous16_pixels_unique_offset]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
+                            previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                         }
                         _=>
                         {
@@ -769,6 +772,8 @@ pub fn decode<R: io::Read>(
 
                                 }
                             }
+                            previous16_pixels_unique[previous16_pixels_unique_offset]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
+                            previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                         }
 
                     }
@@ -777,6 +782,7 @@ pub fn decode<R: io::Read>(
                     //temp_time+=headertime.elapsed().as_nanos();
                     prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     let mut temp_curr_runcount: u8=0;
+
                     while prefix1 == PREFIX_RED_RUN
                     {
                         //run lengths
@@ -784,6 +790,7 @@ pub fn decode<R: io::Read>(
                         temp_curr_runcount += 3;
                         prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     }
+                    
                     if temp_curr_runcount>0
                     {
 
@@ -792,6 +799,7 @@ pub fn decode<R: io::Read>(
                         run_values[0]=output_vec[position];
                         temp_curr_runcount=0;
                     }
+
                     while prefix1 == PREFIX_GREEN_RUN
                     {  
                         //run lengths
@@ -808,13 +816,15 @@ pub fn decode<R: io::Read>(
                         run_values[1]=output_vec[position+1];
                         temp_curr_runcount=0;
                     }
+
                     while prefix1 == PREFIX_BLUE_RUN
                     {  
                         //run lengths
                         curr_lengths[PREFIX_BLUE_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
                         temp_curr_runcount += 3;
                         prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
-                    }   
+                    }
+
                     if temp_curr_runcount>0
                     {
 
@@ -823,8 +833,6 @@ pub fn decode<R: io::Read>(
                         run_values[2]=output_vec[position+2];
                     }
 
-                    previous16_pixels_unique[previous16_pixels_unique_offset]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
-                    previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
 
                     //dbg!(prefix1);
                 }
