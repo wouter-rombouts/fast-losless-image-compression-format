@@ -10,6 +10,7 @@ pub mod hfe;
 pub mod bitwriter;
 pub mod bitreader;
 pub(crate) mod image;
+pub(crate) mod symbol_set;
 
 fn main()
 {

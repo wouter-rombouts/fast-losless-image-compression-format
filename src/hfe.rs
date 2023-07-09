@@ -10,15 +10,14 @@ use std::rc::Rc;
     list_of_occurs : Box<[usize]>
 }*/
 pub struct EncodedOutput
-{ pub symbol_occurs : Vec<Vec<usize>>,
-  pub data_vec : Vec<(u8, u8)>
+{ pub symbol_occurs : Vec<usize>
 }
 impl EncodedOutput
 {
     pub fn new( data_size_estimate : usize)
     -> EncodedOutput
     {
-        EncodedOutput{ symbol_occurs: Vec::new(), data_vec: Vec::<(u8, u8)>::with_capacity(data_size_estimate) }
+        EncodedOutput{ symbol_occurs: vec![0;data_size_estimate] }
     }
 
     pub fn end( &mut self)
@@ -26,40 +25,36 @@ impl EncodedOutput
         //TODO write cache to data_vec before output?
     }
 
-    pub fn add_symbolu8( &mut self, symbol : u8, output_type : u8 )
+    pub fn add_symbolu8( &mut self, symbol : u8 )
     {
-        self.data_vec.push((symbol,output_type));
-        self.symbol_occurs[output_type as usize][symbol as usize]+=1;
+        //self.data_vec.push((symbol,output_type));
+        self.symbol_occurs[symbol as usize]+=1;
     }
 
-    pub fn add_symbolusize( &mut self, symbol : usize, output_type : u8 )
+    pub fn add_symbolusize( &mut self, symbol : usize )
     {
-        self.data_vec.push((symbol as u8,output_type));
-        self.symbol_occurs[output_type as usize][symbol]+=1;
+        //self.data_vec.push((symbol as u8,output_type));
+        self.symbol_occurs[symbol]+=1;
     }
 
-    pub fn add_output_type( &mut self, size : usize)
-    {
-        self.symbol_occurs.push(vec![0;size]);
-    }
-    pub fn to_encoded_output<'a,W:Write>( &mut self, bitwriter : &mut Bitwriter<'a, W> )
+    pub fn to_bcodes( &mut self )
 
-    -> Result<(), io::Error>
+    -> Vec<Bcode>
     {
 
         //TODO create a lookup table with codes for each output type
-        let mut list_of_bcodes : Vec<Vec<Bcode>> = Vec::new();
-        for occurs_i  in 0..self.symbol_occurs.len()
+        //let mut list_of_bcodes : Vec<Vec<Bcode>> = Vec::new();
+        //for occurs_i  in 0..self.symbol_occurs.len()
         {
             //calculate amount of bits for each color value, based on (flattened) huffman tree.
             //initialize 1 so no joining the last level which contains a lot of values in the symbols_under_node
-            let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 1, code: 0 };self.symbol_occurs[occurs_i].len()];
+            let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 1, code: 0 };self.symbol_occurs.len()];
             let mut flat_tree = BinaryHeap::<TreeNode>::new();
 
 
-            for i in 0..self.symbol_occurs[occurs_i].len()
+            for i in 0..self.symbol_occurs.len()
             {
-                flat_tree.push(TreeNode{ occurrences_sum : self.symbol_occurs[occurs_i][i],
+                flat_tree.push(TreeNode{ occurrences_sum : self.symbol_occurs[i],
                                         symbols_under_node : vec![i as u8]});
             }
 
@@ -79,36 +74,30 @@ impl EncodedOutput
             //build binary tree with color values based on amount of bits, in numerical order( bottom-up)
             //write amount of bits to output
             amount_of_bits_to_bcodes(&mut bcodes);
-            /*#[cfg(debug_assertions)]
-            let mut sumtot=0;
-            #[cfg(debug_assertions)]
-            for i in 0..self.symbol_occurs[occurs_i].len()
-            {
-                sumtot+=self.symbol_occurs[occurs_i][i] * bcodes[i].aob as usize;
-            }
 
-            dbg!(sumtot);*/
-            let max_aob=bcodes.iter().max().unwrap().aob;
-            bitwriter.write_8bits(5, max_aob)?;
-            
-            for el in bcodes.iter()
-            {
-                bitwriter.write_8bits(max_aob.next_power_of_two().count_zeros() as u8, el.aob)?;
-            }
-            list_of_bcodes.push(bcodes);
+
+            //list_of_bcodes.push(bcodes);
+            bcodes
 
         }
-        //decodingstream should know how many output types there are
 
+    }
 
-        for el in &mut *self.data_vec
+    pub fn writebcodes<'a,W:Write>( bcodes: &Vec<Bcode>, bitwriter : &mut Bitwriter<'a, W> )
+    -> Result<(), io::Error>
+    {
+        let max_aob=bcodes.iter().max().unwrap().aob;
+        bitwriter.write_8bits(5, max_aob)?;
+        
+        for el in bcodes.iter()
         {
-            bitwriter.write_24bits(list_of_bcodes[el.1 as usize][el.0 as usize].aob, list_of_bcodes[el.1 as usize][el.0 as usize].code as u32)?;
+            bitwriter.write_8bits(max_aob.next_power_of_two().count_zeros() as u8, el.aob)?;
         }
-        //TODO move to code.rs at the very end
-        bitwriter.writer.write_all(&[(bitwriter.cache>>24).try_into().unwrap()])?;
         Ok(())
     }
+
+
+
 }
 
 
@@ -119,6 +108,20 @@ pub struct Bcode
     pub code : usize
 
 }
+
+impl Bcode
+{
+    pub fn write_data<'a,W:Write>(&self,bitwriter : &mut Bitwriter<'a, W>)
+    -> Result<(), io::Error>
+    {
+
+        bitwriter.write_24bits(self.aob, self.code as u32)?;
+        //TODO move to code.rs at the very end
+        //bitwriter.writer.write_all(&[(bitwriter.cache>>24).try_into().unwrap()])?;
+        Ok(())
+    }
+}
+
 #[derive(PartialEq,PartialOrd,Eq,Ord,Debug)]
 pub struct LookupItem
 {
@@ -296,6 +299,10 @@ pub fn amount_of_bits_to_bcodes( codes : &mut Vec<Bcode>)
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
+    use crate::hfe::EncodedOutput;
+
     #[test]
     fn check_basic_encoding()
     {
@@ -304,21 +311,35 @@ mod tests {
         //let occurrences=Box::new([0usize;SIZE_ARR]);
         
         let mut output_vec : Vec<u8> = Vec::new();
-        let mut encoder = super::EncodedOutput::new(SIZE_ARR*1000);
-        encoder.add_output_type(SIZE_ARR);
+        let mut encoder = super::EncodedOutput::new(SIZE_ARR);
+        //encoder.add_output_type(SIZE_ARR);
         //add data
         let now = std::time::Instant::now();
         for i in 0..SIZE_ARR
         {
             for _j in 0..i*10
             {
-                encoder.add_symbolusize(i,0);
+                encoder.add_symbolusize(i);
             }
         }
         //encode
         let mut mywriter=crate::bitwriter::Bitwriter::new(&mut output_vec);
-        encoder.to_encoded_output(&mut mywriter).unwrap();
+        let bcodes=encoder.to_bcodes();
+
+        EncodedOutput::writebcodes(&bcodes,&mut mywriter).unwrap();
+        for i in 0..SIZE_ARR
+        {
+            for _j in 0..i*10
+            {
+                bcodes[i].write_data(&mut mywriter).unwrap();
+            }
+        }
+
+
+        mywriter.writer.write_all(&[(mywriter.cache>>24).try_into().unwrap()]).unwrap();
+        //encoder.to_encoded_output(&mut mywriter).unwrap();
         let cache=mywriter.cache.to_be_bytes();
+
         output_vec.extend_from_slice(&cache[..]);
         println!("encoder speed: {}", now.elapsed().as_millis());
         //read
