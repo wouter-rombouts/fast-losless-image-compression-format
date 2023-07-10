@@ -1,9 +1,9 @@
 #[derive(PartialEq,Copy,Clone)]
 pub struct RGBSet
 {
-    pub(crate) red:u8,
-    pub(crate) green:u8,
-    pub(crate) blue:u8
+    pub(crate) red:Option<u8>,
+    pub(crate) green:Option<u8>,
+    pub(crate) blue:Option<u8>
 }
 #[derive(PartialEq,Copy,Clone)]
 
@@ -23,14 +23,13 @@ pub struct LumaSet
     pub(crate) blue_diff : Option<u8>
 }
 
-#[derive(PartialEq,Copy,Clone)]
+#[derive(PartialEq,Clone)]
 pub struct RunSet
 {
-    pub(crate) runtype:u8,
-    pub(crate) runlength:u8
+    pub(crate) runs : Vec<(u8,u8)>
 }
 
-#[derive(PartialEq,Copy,Clone)]
+#[derive(PartialEq,Clone)]
 pub enum SymbolSet
 {
     Rgbset(RGBSet),

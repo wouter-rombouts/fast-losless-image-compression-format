@@ -99,7 +99,6 @@ pub fn encode<W: io::Write>(
         //TODO cache for calc_pos_from function when values are generated from run lookups
         let prev_position = position;
         position=image_header.calc_pos_from(loop_index)*channels;
-
         if run_count_red ==1 ||run_count_green==1||run_count_blue==1
         {
             //prev_position=position;      
@@ -166,6 +165,7 @@ pub fn encode<W: io::Write>(
                         //data.add_symbolu8((4+list_of_color_diffs[2]) as u8, SC_SMALL_DIFF);
                         symbolset.blue_diff=Some((4+list_of_color_diffs[2]) as u8);
                     }
+
                     symbol_set_group[0]=Some(SymbolSet::DiffSet(symbolset));
                 }
                 else
@@ -252,27 +252,28 @@ pub fn encode<W: io::Write>(
                 //write rgb
                 //if is_luma==false
                 {
-                    let mut symbolset = RGBSet{ red: 0, green: 0, blue: 0 };
+                    let mut symbolset = RGBSet{ red: None, green: None, blue: None };
                     //data.add_symbolu8(PREFIX_RGB, SC_PREFIXES);
 
                     rgb_cntr+=1;
                     if run_count_red == 1
                     {
-                        symbolset.red=input_bytes[position].wrapping_sub(if position>0{input_bytes[prev_position]}else{0});
+                        symbolset.red=Some(input_bytes[position].wrapping_sub(if position>0{input_bytes[prev_position]}else{0}));
                         //data.add_symbolu8(input_bytes[position].wrapping_sub(if position>0{input_bytes[prev_position]}else{0}), SC_RGB);
                     }        
                     if run_count_green == 1
                     {
-                        symbolset.green=input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0});
+                        symbolset.green=Some(input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0}));
                         //data.add_symbolu8(input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0}), SC_RGB);
 
                     }
                     if run_count_blue == 1
                     {
-                        symbolset.blue=input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0});
+                        symbolset.blue=Some(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}));
                         //data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
                     }
+
                     previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
                     previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                     for el in symbol_set_group.iter_mut()
@@ -312,6 +313,7 @@ pub fn encode<W: io::Write>(
         
         prev_run_count=0;
         let mut symbol_set_group : [Option<SymbolSet>;3] = [None,None,None];
+        let mut runset=RunSet{runs:Vec::new()};
             //check for color run
             if run_count_red==1
             {
@@ -346,7 +348,9 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        symbol_set_group[0] = Some(SymbolSet::RunSet(RunSet{ runtype: PREFIX_RED_RUN, runlength: (red_run_length & 0b0000_0111).try_into().unwrap() }));
+                        runset.runs.push(( PREFIX_RED_RUN,(red_run_length & 0b0000_0111).try_into().unwrap()) );
+
+                        //symbol_set_group[0] = Some(SymbolSet::RunSet());
                         //data.add_symbolu8(PREFIX_RED_RUN, SC_PREFIXES);
                         //data.add_symbolu8((red_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                         run_occurrences[(red_run_length & 0b0000_0111)]+=1;
@@ -397,14 +401,8 @@ pub fn encode<W: io::Write>(
                         run_cntr+=1;
                         loop
                         {
-                            for el in symbol_set_group.iter_mut()
-                            {
-                                if *el ==None
-                                {
-                                    *el= Some(SymbolSet::RunSet(RunSet{ runtype: PREFIX_GREEN_RUN, runlength: (green_run_length & 0b0000_0111).try_into().unwrap() }));
-                                    break;
-                                }
-                            }
+                            
+                            runset.runs.push(( PREFIX_GREEN_RUN,(green_run_length & 0b0000_0111).try_into().unwrap()) );
                             
                              
                             //data.add_symbolu8(PREFIX_GREEN_RUN, SC_PREFIXES);
@@ -456,14 +454,7 @@ pub fn encode<W: io::Write>(
                         run_cntr+=1;
                         loop
                         {
-                            for el in symbol_set_group.iter_mut()
-                            {
-                                if *el ==None
-                                {
-                                    *el = Some(SymbolSet::RunSet(RunSet{ runtype: PREFIX_BLUE_RUN, runlength: (blue_run_length & 0b0000_0111).try_into().unwrap() }));
-                                    break;
-                                }
-                            }
+                            runset.runs.push(( PREFIX_BLUE_RUN,(blue_run_length & 0b0000_0111).try_into().unwrap()) );
                             //data.add_symbolu8(PREFIX_BLUE_RUN, SC_PREFIXES);
                             //data.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                             run_occurrences[(blue_run_length & 0b0000_0111)]+=1;
@@ -476,7 +467,10 @@ pub fn encode<W: io::Write>(
                     }
                 }
             }
-
+            if runset.runs.len()>0
+            {
+                symbol_set_group[0]=Some(SymbolSet::RunSet(runset));
+            }
             if symbol_set_group.iter().any(|x|*x != None)
             {
                 symbolsets.push(symbol_set_group);
@@ -513,9 +507,20 @@ pub fn encode<W: io::Write>(
                         {
                             //TODO don't add to data_vec
                             prefix_encoder.add_symbolu8(PREFIX_RGB);
-                            rgb_encoder.add_symbolu8(rgbset.red);
-                            rgb_encoder.add_symbolu8(rgbset.green);
-                            rgb_encoder.add_symbolu8(rgbset.blue);
+                            if let Some(red)=rgbset.red
+                            {
+                                rgb_encoder.add_symbolu8(red);
+                            }
+
+                            if let Some(green)=rgbset.green
+                            {
+                                rgb_encoder.add_symbolu8(green);
+                            }
+
+                            if let Some(blue)=rgbset.blue
+                            {
+                                rgb_encoder.add_symbolu8(blue);
+                            }
                             break;
                         },
                         SymbolSet::DiffSet(diffset) => 
@@ -556,8 +561,13 @@ pub fn encode<W: io::Write>(
                         },
                         SymbolSet::RunSet(runset) => 
                         {
-                            prefix_encoder.add_symbolu8(runset.runtype);
-                            runlength_encoder.add_symbolu8(runset.runlength);
+                            for rset in &runset.runs
+                            {
+                                //type
+                                prefix_encoder.add_symbolu8(rset.0);
+                                //runlength
+                                runlength_encoder.add_symbolu8(rset.1);
+                            }
                             
                         },
                     }
@@ -585,56 +595,82 @@ pub fn encode<W: io::Write>(
         {
             SymbolSet::Rgbset(rgbset) => 
             {
-                bcodes_prefix[PREFIX_RGB as usize].aob+bcodes_rgb[rgbset.red as usize].aob+bcodes_rgb[rgbset.green as usize].aob+bcodes_rgb[rgbset.blue as usize].aob
+                bcodes_prefix[PREFIX_RGB as usize].aob+
+                if let Some(red) = rgbset.red
+                {
+                    bcodes_rgb[ red as usize].aob
+                }
+                else
+                {
+                    0
+                }+
+                if let Some(green) = rgbset.green
+                {
+                    bcodes_rgb[ green as usize].aob
+                }
+                else
+                {
+                    0
+                }+
+                if let Some(blue) = rgbset.blue
+                {
+                    bcodes_rgb[ blue as usize].aob
+                }
+                else
+                {
+                    0
+                }
             },
             SymbolSet::DiffSet(diffset) => 
             {
                 bcodes_prefix[PREFIX_SMALL_DIFF as usize].aob+
-                bcodes_diff[ if let Some(red_diff) = diffset.red_diff
-                             {
-                                 red_diff
-                             }
-                             else
-                             {
-                                 0
-                             } as usize].aob+
-                bcodes_diff[ if let Some(green_diff) = diffset.green_diff
-                             {
-                                green_diff
-                             }
-                             else
-                             {
-                                 0
-                             } as usize].aob+
-                bcodes_diff[ if let Some(blue_diff) = diffset.blue_diff
-                             {
-                                blue_diff
-                             }
-                             else
-                             {
-                                 0
-                             } as usize].aob
+                if let Some(red_diff) = diffset.red_diff
+                {
+                    bcodes_diff[ red_diff as usize].aob
+                }
+                else
+                {
+                    0
+                }+
+                if let Some(green_diff) = diffset.green_diff
+                {
+                    bcodes_diff[ green_diff as usize].aob
+                }
+                else
+                {
+                    0
+                }+
+                if let Some(blue_diff) = diffset.blue_diff
+                {
+                    bcodes_diff[ blue_diff as usize].aob
+                }
+                else
+                {
+                    0
+                }
+                
             },
             SymbolSet::LumaSet(lumaset) => 
             {
                 bcodes_prefix[PREFIX_COLOR_LUMA as usize].aob+
-                bcodes_luma_other[if let Some(red_diff)=lumaset.red_diff
+                if let Some(red_diff)=lumaset.red_diff
                 {
-                    red_diff
+                    bcodes_luma_other[red_diff as usize].aob
                 }
                 else
                 {
                     0
-                } as usize].aob+
+                }
+                +
                 bcodes_luma_base[lumaset.green_diff as usize].aob+bcodes_luma_backref[lumaset.back_ref as usize].aob+
-                bcodes_luma_other[if let Some(blue_diff)=lumaset.blue_diff
+                if let Some(blue_diff)=lumaset.blue_diff
                 {
-                    blue_diff
+                    bcodes_luma_other[blue_diff as usize].aob
                 }
                 else
                 {
                     0
-                } as usize].aob
+                }
             },
             SymbolSet::RunSet(_) => {0},
         }
@@ -655,83 +691,76 @@ pub fn encode<W: io::Write>(
     for mut choices in symbolsets
     {
         choices.sort_by_key( |a| if let Some(symset) = a{ get_total_aob(symset) } else{ u8::MAX } );
-        match choices[0].unwrap()
+        match &choices[0]
         {
-            SymbolSet::Rgbset(rgbset) => 
+            Some(SymbolSet::Rgbset(rgbset)) => 
             {
                 bcodes_prefix[PREFIX_RGB as usize].write_data(&mut bitwriter)?;
-                bcodes_rgb[rgbset.red as usize].write_data(&mut bitwriter)?;
-                bcodes_rgb[rgbset.green as usize].write_data(&mut bitwriter)?;
-                bcodes_rgb[rgbset.blue as usize].write_data(&mut bitwriter)?;
+                if let Some(red) = rgbset.red
+                {
+                    bcodes_rgb[ red as usize].write_data(&mut bitwriter)?;
+                }
+                if let Some(green) = rgbset.green
+                {
+                    bcodes_rgb[ green as usize].write_data(&mut bitwriter)?;
+                }
+                if let Some(blue) = rgbset.blue
+                {
+                    bcodes_rgb[ blue as usize].write_data(&mut bitwriter)?;
+                }
             },
-            SymbolSet::DiffSet(diffset) => 
+            Some(SymbolSet::DiffSet(diffset)) => 
             {
+                //TODO don't write when None
                 bcodes_prefix[PREFIX_SMALL_DIFF as usize].write_data(&mut bitwriter)?;
-                bcodes_diff[ if let Some(red_diff) = diffset.red_diff
+                if let Some(red_diff) = diffset.red_diff
                 {
-                    red_diff
+                    bcodes_diff[ red_diff as usize].write_data(&mut bitwriter)?;
                 }
-                else
+
+                if let Some(green_diff) = diffset.green_diff
                 {
-                    0
-                } as usize].write_data(&mut bitwriter)?;
-                
-                bcodes_diff[ if let Some(green_diff) = diffset.green_diff
-                {
-                   green_diff
+                    bcodes_diff[ green_diff as usize].write_data(&mut bitwriter)?;
                 }
-                else
+
+                if let Some(blue_diff) = diffset.blue_diff
                 {
-                    0
-                } as usize].write_data(&mut bitwriter)?;
-                bcodes_diff[ if let Some(blue_diff) = diffset.blue_diff
-                {
-                   blue_diff
+                    bcodes_diff[ blue_diff as usize].write_data(&mut bitwriter)?;
                 }
-                else
-                {
-                    0
-                } as usize].write_data(&mut bitwriter)?;
             },
-            SymbolSet::LumaSet(lumaset) => 
+            Some(SymbolSet::LumaSet(lumaset)) => 
             {
                 bcodes_prefix[PREFIX_COLOR_LUMA as usize].write_data(&mut bitwriter)?;
 
-                bcodes_luma_other[if let Some(red_diff)=lumaset.red_diff
-                {
-                    red_diff
-                }
-                else
-                {
-                    0
-                } as usize].write_data(&mut bitwriter)?;
-                bcodes_luma_base[lumaset.green_diff as usize].write_data(&mut bitwriter)?;
                 bcodes_luma_backref[lumaset.back_ref as usize].write_data(&mut bitwriter)?;
-                bcodes_luma_other[if let Some(blue_diff)=lumaset.blue_diff
+                bcodes_luma_base[lumaset.green_diff as usize].write_data(&mut bitwriter)?;
+
+                if let Some(red_diff)=lumaset.red_diff
                 {
-                    blue_diff
+                    bcodes_luma_other[red_diff as usize].write_data(&mut bitwriter)?;
                 }
-                else
+
+                if let Some(blue_diff)=lumaset.blue_diff
                 {
-                    0
-                } as usize].write_data(&mut bitwriter)?;
+                    bcodes_luma_other[blue_diff as usize].write_data(&mut bitwriter)?;
+                }
             },
-            //TODO accept more than 3 runs
-            SymbolSet::RunSet(runsets) => 
+            Some(SymbolSet::RunSet(runset)) => 
             {
-                for el in choices
-                {
-                    if let Some(runsetenum)=el 
-                    {
-                        if let SymbolSet::RunSet(runset)=runsetenum
+                
+                    
+                        //if let SymbolSet::RunSet(runset)=runset
                         {
-                            bcodes_prefix[runset.runtype as usize].write_data(&mut bitwriter)?;
-                            bcodes_runlength[runset.runlength as usize].write_data(&mut bitwriter)?;
+                            for rset in &runset.runs
+                            {
+                                bcodes_prefix[rset.0 as usize].write_data(&mut bitwriter)?;
+                                bcodes_runlength[rset.1 as usize].write_data(&mut bitwriter)?;
+                            }
                         }
                         
-                    }
-                }
+                    
             },
+            None => {},
         }
     }
     //reorder symbolsets choices to get least aob
@@ -952,7 +981,9 @@ pub fn decode<R: io::Read>(
                 if curr_lengths.iter().any(|&x| x == 0)
                 {
 
+
                     //let headertime = Instant::now();
+
                     match prefix1
                     {
                         PREFIX_SMALL_DIFF=>
@@ -960,6 +991,7 @@ pub fn decode<R: io::Read>(
                             if curr_lengths[0]==0
                             {
                                 output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos] as i16)as u8;
+
                             }
                             else
                             {
@@ -988,8 +1020,9 @@ pub fn decode<R: io::Read>(
                         PREFIX_COLOR_LUMA=>
                         {
                             let backref = decoder.read_next_symbol(&luma_backref_lookup)?;
-                            prev_luma_base_diff=decoder.read_next_symbol(&luma_base_diff_lookup)? as i16-32;
 
+                            prev_luma_base_diff=decoder.read_next_symbol(&luma_base_diff_lookup)? as i16-32;
+                            
                             output_vec[position+1]=(prev_luma_base_diff + (previous16_pixels_unique[backref as usize][1] as i16)) as u8;
 
                             if curr_lengths[1]>0
@@ -1007,6 +1040,7 @@ pub fn decode<R: io::Read>(
                             {
                                 prev_luma_other_diff1=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position]=(prev_luma_other_diff1 + prev_luma_base_diff+(previous16_pixels_unique[backref as usize][0] as i16)) as u8;
+                                
                             }
                             if curr_lengths[2]>0
                             {
@@ -1043,9 +1077,9 @@ pub fn decode<R: io::Read>(
                         }
 
                     }
-                    
 
                     //temp_time+=headertime.elapsed().as_nanos();
+
                     prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     let mut temp_curr_runcount: u8=0;
 
@@ -1061,7 +1095,6 @@ pub fn decode<R: io::Read>(
                     {
 
                         curr_lengths[PREFIX_RED_RUN as usize] += 3;
-                                    
                         run_values[0]=output_vec[position];
                         temp_curr_runcount=0;
                     }
