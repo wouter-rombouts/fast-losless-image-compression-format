@@ -26,7 +26,10 @@ pub struct LumaSet
 #[derive(PartialEq,Clone)]
 pub struct RunSet
 {
-    pub(crate) runs : Vec<(u8,u8)>
+    pub(crate) red_run : Option<usize>,
+    pub(crate) green_run : Option<usize>,
+    pub(crate) blue_run : Option<usize>,
+    
 }
 
 #[derive(PartialEq,Clone)]
@@ -46,13 +49,4 @@ pub struct SymbolSetGroup
     pub choice2 : Option<SymbolSet>,
     pub choice3 : Option<SymbolSet>
 }
-pub struct SymbolSetsMap//<'a>
-{
-    symbolsets:Vec<[Option<SymbolSet>;3]>,
-    //preferred_symbolsets:Vec<&'a SymbolSetGroup>
-}
 
-/*impl SymbolSetsMap<'_>
-{
-    fn add_
-}*/

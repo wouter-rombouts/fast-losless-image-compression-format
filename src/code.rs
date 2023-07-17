@@ -129,7 +129,7 @@ pub fn encode<W: io::Write>(
 
                 //check color diff            
                 
-                
+                let mut is_diff=false;
 
                 let mut list_of_color_diffs=[0;3];
            
@@ -165,10 +165,10 @@ pub fn encode<W: io::Write>(
                         //data.add_symbolu8((4+list_of_color_diffs[2]) as u8, SC_SMALL_DIFF);
                         symbolset.blue_diff=Some((4+list_of_color_diffs[2]) as u8);
                     }
-
+                    is_diff=true;
                     symbol_set_group[0]=Some(SymbolSet::DiffSet(symbolset));
                 }
-                else
+                //else
                 {
 
                 let mut symbolset = LumaSet{ red_diff: None, green_diff: 0, blue_diff: None, back_ref : 0 };
@@ -233,7 +233,15 @@ pub fn encode<W: io::Write>(
                             symbolset.blue_diff=Some((list_of_color_diffs[2]+8) as u8);
                             //data.add_symbolu8((list_of_color_diffs[2]+8) as u8, SC_LUMA_OTHER_DIFF);
                         }
-                        symbol_set_group[0]=Some(SymbolSet::LumaSet(symbolset));
+                        //symbol_set_group[0]=Some(SymbolSet::LumaSet(symbolset));
+                        for el in symbol_set_group.iter_mut()
+                        {//el=Some(SymbolSet::Rgbset(symbolset));
+                            if *el==None
+                            {
+                                *el=Some(SymbolSet::LumaSet(symbolset));
+                                break;
+                            }
+                        }
                         luma_occurences+=1;
                         is_luma=true;
                         //previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
@@ -273,9 +281,12 @@ pub fn encode<W: io::Write>(
                         //data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
                     }
-
-                    previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
-                    previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
+                    if is_diff==false
+                    {
+                        previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
+                        previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
+                    }
+                    
                     for el in symbol_set_group.iter_mut()
                     {//el=Some(SymbolSet::Rgbset(symbolset));
                         if *el==None
@@ -313,7 +324,7 @@ pub fn encode<W: io::Write>(
         
         prev_run_count=0;
         let mut symbol_set_group : [Option<SymbolSet>;3] = [None,None,None];
-        let mut runset=RunSet{runs:Vec::new()};
+        let mut runset=RunSet{ red_run: None, green_run: None, blue_run: None };
             //check for color run
             if run_count_red==1
             {
@@ -346,10 +357,11 @@ pub fn encode<W: io::Write>(
                     red_pixel_run_amount+=red_run_length;
                     red_run_length = red_run_length - 3;
                     run_cntr+=1;
-                    loop
+                    runset.red_run=Some( red_run_length );
+                    /*loop
                     {
-                        runset.runs.push(( PREFIX_RED_RUN,(red_run_length & 0b0000_0111).try_into().unwrap()) );
-
+                        
+                        //runset.runs.push(( PREFIX_RED_RUN,(red_run_length & 0b0000_0111).try_into().unwrap()) );
                         //symbol_set_group[0] = Some(SymbolSet::RunSet());
                         //data.add_symbolu8(PREFIX_RED_RUN, SC_PREFIXES);
                         //data.add_symbolu8((red_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
@@ -360,7 +372,7 @@ pub fn encode<W: io::Write>(
                         }
                         red_run_length = red_run_length >> 3;
                         
-                    }
+                    }*/
                 }
             }
 
@@ -399,7 +411,8 @@ pub fn encode<W: io::Write>(
                         run_count_green+=green_run_length;
                         green_run_length = green_run_length - 3;
                         run_cntr+=1;
-                        loop
+                        runset.green_run=Some( green_run_length );
+                        /*loop
                         {
                             
                             runset.runs.push(( PREFIX_GREEN_RUN,(green_run_length & 0b0000_0111).try_into().unwrap()) );
@@ -413,7 +426,7 @@ pub fn encode<W: io::Write>(
                                 break;
                             }
                             green_run_length = green_run_length >> 3;
-                        }
+                        }*/
                     }
                 }
             }
@@ -452,7 +465,8 @@ pub fn encode<W: io::Write>(
                         run_count_blue+=blue_run_length;
                         blue_run_length = blue_run_length - 3;
                         run_cntr+=1;
-                        loop
+                        runset.blue_run=Some( blue_run_length );
+                        /*loop
                         {
                             runset.runs.push(( PREFIX_BLUE_RUN,(blue_run_length & 0b0000_0111).try_into().unwrap()) );
                             //data.add_symbolu8(PREFIX_BLUE_RUN, SC_PREFIXES);
@@ -463,11 +477,11 @@ pub fn encode<W: io::Write>(
                                 break;
                             }
                             blue_run_length = blue_run_length >> 3;
-                        }
+                        }*/
                     }
                 }
             }
-            if runset.runs.len()>0
+            if runset.red_run != None || runset.green_run != None || runset.blue_run != None
             {
                 symbol_set_group[0]=Some(SymbolSet::RunSet(runset));
             }
@@ -495,9 +509,8 @@ pub fn encode<W: io::Write>(
     //symbolsets
     for choices in &symbolsets
     {
-        for el in choices
-        {
-            match el
+        
+            match &choices[0]
             {
                 Some(symbolset)=>
                 {
@@ -521,7 +534,7 @@ pub fn encode<W: io::Write>(
                             {
                                 rgb_encoder.add_symbolu8(blue);
                             }
-                            break;
+                            //break;
                         },
                         SymbolSet::DiffSet(diffset) => 
                         {
@@ -539,7 +552,7 @@ pub fn encode<W: io::Write>(
                                 small_diff_encoder.add_symbolu8(blue_diff);
                             }
                             
-                            break;
+                            //break;
                         },
                         SymbolSet::LumaSet(lumaset) =>
                         {
@@ -557,16 +570,63 @@ pub fn encode<W: io::Write>(
                             {
                                 luma_other_encoder.add_symbolu8(blue_diff);
                             }
-                            break;
+                            //break;
                         },
                         SymbolSet::RunSet(runset) => 
                         {
-                            for rset in &runset.runs
+                            if let Some( red_run_len)=runset.red_run
                             {
-                                //type
-                                prefix_encoder.add_symbolu8(rset.0);
-                                //runlength
-                                runlength_encoder.add_symbolu8(rset.1);
+                                let mut red_run_length=red_run_len;
+                                loop
+                                {
+                                    //type
+                                    prefix_encoder.add_symbolu8(PREFIX_RED_RUN);
+                                    //runlength
+                                    runlength_encoder.add_symbolu8((red_run_length & 0b0000_0111).try_into().unwrap());
+
+                                    if red_run_length <8
+                                    {
+                                        break;
+                                    }
+
+                                    red_run_length = red_run_length >> 3;
+                                }
+                            }
+                            if let Some(green_run_len)=runset.green_run
+                            {
+                                let mut green_run_length=green_run_len;
+                                loop
+                                {
+                                    //type
+                                    prefix_encoder.add_symbolu8(PREFIX_GREEN_RUN);
+                                    //runlength
+                                    runlength_encoder.add_symbolu8((green_run_length & 0b0000_0111).try_into().unwrap());
+
+                                    if green_run_length <8
+                                    {
+                                        break;
+                                    }
+
+                                    green_run_length = green_run_length >> 3;
+                                }
+                            }
+                            if let Some( blue_run_len)=runset.blue_run
+                            {
+                                let mut blue_run_length=blue_run_len;
+                                loop
+                                {
+                                    //type
+                                    prefix_encoder.add_symbolu8(PREFIX_BLUE_RUN);
+                                    //runlength
+                                    runlength_encoder.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap());
+
+                                    if blue_run_length <8
+                                    {
+                                        break;
+                                    }
+
+                                    blue_run_length = blue_run_length >> 3;
+                                }
                             }
                             
                         },
@@ -574,11 +634,9 @@ pub fn encode<W: io::Write>(
                 },
                 None=>
                 {
-                    break;
+                    //break;
                 }
             }
-            //data.add_symbolu8(PREFIX_BLUE_RUN, SC_PREFIXES);
-        }
     }
     //calc aob for each stream(add to enum types?)
     let bcodes_rgb=rgb_encoder.to_bcodes();
@@ -588,6 +646,14 @@ pub fn encode<W: io::Write>(
     let bcodes_luma_other=luma_other_encoder.to_bcodes();
     let bcodes_luma_backref=luma_backref_encoder.to_bcodes();
     let bcodes_runlength=runlength_encoder.to_bcodes();
+    let mut bitwriter=Bitwriter::new(output_writer);
+    EncodedOutput::writebcodes(&bcodes_rgb,&mut bitwriter)?;
+    EncodedOutput::writebcodes(&bcodes_prefix,&mut bitwriter)?;
+    EncodedOutput::writebcodes(&bcodes_runlength,&mut bitwriter)?;
+    EncodedOutput::writebcodes(&bcodes_luma_base,&mut bitwriter)?;
+    EncodedOutput::writebcodes(&bcodes_luma_other,&mut bitwriter)?;
+    EncodedOutput::writebcodes(&bcodes_luma_backref,&mut bitwriter)?;
+    EncodedOutput::writebcodes(&bcodes_diff,&mut bitwriter)?;
     let get_total_aob=| symbolset : &SymbolSet |
     ->u8
     {
@@ -675,15 +741,8 @@ pub fn encode<W: io::Write>(
             SymbolSet::RunSet(_) => {0},
         }
     };
-    let mut bitwriter=Bitwriter::new(output_writer);
 
-    EncodedOutput::writebcodes(&bcodes_rgb,&mut bitwriter)?;
-    EncodedOutput::writebcodes(&bcodes_prefix,&mut bitwriter)?;
-    EncodedOutput::writebcodes(&bcodes_runlength,&mut bitwriter)?;
-    EncodedOutput::writebcodes(&bcodes_luma_base,&mut bitwriter)?;
-    EncodedOutput::writebcodes(&bcodes_luma_other,&mut bitwriter)?;
-    EncodedOutput::writebcodes(&bcodes_luma_backref,&mut bitwriter)?;
-    EncodedOutput::writebcodes(&bcodes_diff,&mut bitwriter)?;
+
 
 
 
@@ -747,16 +806,52 @@ pub fn encode<W: io::Write>(
             },
             Some(SymbolSet::RunSet(runset)) => 
             {
-                
-                    
-                        //if let SymbolSet::RunSet(runset)=runset
+                if let Some(mut red_run_length)=runset.red_run
+                {
+                    loop
+                    {
+                        
+                        bcodes_prefix[PREFIX_RED_RUN as usize].write_data(&mut bitwriter)?;
+                        bcodes_runlength[red_run_length & 0b0000_0111].write_data(&mut bitwriter)?;
+
+                        if red_run_length <8
                         {
-                            for rset in &runset.runs
-                            {
-                                bcodes_prefix[rset.0 as usize].write_data(&mut bitwriter)?;
-                                bcodes_runlength[rset.1 as usize].write_data(&mut bitwriter)?;
-                            }
+                            break;
                         }
+
+                        red_run_length = red_run_length >> 3;
+                    }
+                }
+                if let Some(mut green_run_length)=runset.green_run
+                {
+                    loop
+                    {
+                        bcodes_prefix[PREFIX_GREEN_RUN as usize].write_data(&mut bitwriter)?;
+                        bcodes_runlength[green_run_length & 0b0000_0111].write_data(&mut bitwriter)?;
+
+                        if green_run_length <8
+                        {
+                            break;
+                        }
+
+                        green_run_length = green_run_length >> 3;
+                    }
+                }
+                if let Some(mut blue_run_length)=runset.blue_run
+                {
+                    loop
+                    {
+                        bcodes_prefix[PREFIX_BLUE_RUN as usize].write_data(&mut bitwriter)?;
+                        bcodes_runlength[blue_run_length & 0b0000_0111].write_data(&mut bitwriter)?;
+
+                        if blue_run_length <8
+                        {
+                            break;
+                        }
+
+                        blue_run_length = blue_run_length >> 3;
+                    }
+                }
                         
                     
             },
