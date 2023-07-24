@@ -14,7 +14,7 @@ pub(crate) const PREFIX_BLUE_RUN: u8 = 2;
 pub(crate) const PREFIX_RGB: u8 = 3;
 pub(crate) const PREFIX_COLOR_LUMA: u8 = 4;
 pub(crate) const PREFIX_SMALL_DIFF: u8 = 5;
-pub(crate) const PREFIX_REF: u8 = 6;
+//pub(crate) const PREFIX_REF: u8 = 6;
 //stream codes
 pub(crate) const SC_RGB: u8 = 0;
 pub(crate) const SC_PREFIXES: u8 = 1;
@@ -23,7 +23,7 @@ pub(crate) const SC_LUMA_BASE_DIFF: u8 = 3;
 pub(crate) const SC_LUMA_OTHER_DIFF: u8 = 4;
 pub(crate) const SC_LUMA_BACK_REF: u8 = 5;
 pub(crate) const SC_SMALL_DIFF: u8 = 6;
-pub(crate) const SC_REF: u8 = 7;
+//pub(crate) const SC_REF: u8 = 7;
 //pub(crate) const SC_PREV_INPUT: u8 = 9;
 
 /*pub(crate) const PREV_INPUT_BACK_REF: u8 = 0;
@@ -77,7 +77,9 @@ pub fn encode<W: io::Write>(
     //6==SC_SMALL_DIFF
     data.add_output_type(16);
     //7==SC_REF
-    //data.add_output_type(48);
+    //data.add_output_type(8);
+    let mut amount_of_refs=0;
+    let mut amount_of_diffs=0;
     let mut prev_run_count=0;
     //16 size, with 16 spares
     //hold slice or actual values
@@ -94,7 +96,7 @@ pub fn encode<W: io::Write>(
     let mut red_pixel_run_amount=0;
     let mut run_occurrences=[0;8];
 
-    let rel_ref_lookup:[i64;49]=[0;49];
+    let rel_ref_lookup:[usize;8]=[channels,channels*image_header.width,channels*(1+image_header.width),2*channels,2*channels*image_header.width,channels*(2*image_header.width+1),channels*(image_header.width+2),channels*2*(image_header.width+1)];
 
 
     //calc the top pixels
@@ -163,56 +165,9 @@ pub fn encode<W: io::Write>(
             for i in 0..16
             {
             }*/
-            //TODO move to start to generate offsets
-            let mut ymoveup=3;
-            let ypos=position/(image_header.width*channels);
-            if ypos/3<1
-            {
-                ymoveup-=3-ypos/3;
-            }
-            //TODO fix calc ypos
-            //[src\code.rs:200] x = 0
-            //[src\code.rs:201] y = 5
-            //[src\code.rs:202] xmoveback = 0
-            //[src\code.rs:203] ymoveup = 3
-            //thread 'main' panicked at 'index out of bounds: the len is 36000000 but the index is 36000000', src\code.rs:205:71
-            if image_header.height - ypos<= 3
-            {
-                ymoveup+=4 + ypos-image_header.height;
-            }
-            let mut xmoveback=3;
-            let xpos=position%(image_header.width*channels);
-            if xpos < 3
-            {
-                xmoveback-=3-xpos;
-            }
-            if xpos>=image_header.width-3
-            {
-                xmoveback+=4+xpos-image_header.width
-            }
-            let begin_offset:usize=position-ymoveup*image_header.width*channels-xmoveback*channels;
-            let mut ref_found=false;
-            /*for y in 0..7
-            {
-                for x in 0..7
-                {
-                    let offset=begin_offset+(y*image_header.width+x)*channels;
-
-                    if offset != position&&input_bytes[position]==input_bytes[(offset )as usize]&&
-                    input_bytes[position+1]==input_bytes[(offset+1)as usize]&&
-                    input_bytes[position+2]==input_bytes[(offset+2)as usize]
-                    {
-                        data.add_symbolu8(PREFIX_REF, SC_PREFIXES);
-                        data.add_symbolusize((y*7+x)-(y*7+x)/25, SC_REF);
-                        ref_found=true;
-                        break;
-                    }
-                }
-            }*/
-            if !ref_found
             {
                 let mut list_of_color_diffs=[0;3];
-            
+                //TODO try back,up,down,forward to calc diff
                 //green_diff
                 list_of_color_diffs[1]=input_bytes[position+1] as i16-input_bytes[prev_position+1] as i16;
                 //red_diff
@@ -238,6 +193,7 @@ pub fn encode<W: io::Write>(
                     {
                         data.add_symbolu8((8+list_of_color_diffs[2]) as u8, SC_SMALL_DIFF);
                     }
+                    amount_of_diffs+=1;
                 }
                 else
                 {
@@ -262,65 +218,110 @@ pub fn encode<W: io::Write>(
                     /*if !top_found
                     {*/
                     
+                    //TODO move to start to generate offsets
+                    let ymoveup_begin=2;
+                    let mut ymoveup=2;
+                    let ypos=position/(image_header.width*channels);
+                    if ypos/ymoveup_begin<1
+                    {
+                        ymoveup-=ymoveup_begin-ypos;
+                    }
+                    /*if image_header.height - ypos<= ymoveup_begin
+                    {
+                        ymoveup+=ymoveup_begin+1 + ypos-image_header.height;
+                    }*/
+                    let xmoveback_begin=2;
+                    let mut xmoveback=2;
+                    let xpos=(position%(image_header.width*channels))/channels;
+                    if xpos < xmoveback_begin
+                    {
+                        xmoveback-=xmoveback_begin-xpos;
+                    }
+                    /*if xpos>=image_header.width-xmoveback_begin
+                    {
+                        xmoveback+=xmoveback_begin+1+xpos-image_header.width
+                    }*/
+                    let begin_offset:usize=position-ymoveup*image_header.width*channels-xmoveback*channels;
                     let mut list_of_color_diffs=[0;3];
                     let mut is_luma=false;
                     for i in 0..=7
                     {
-                        //green_diff
-                        list_of_color_diffs[1]=input_bytes[position+1] as i16-previous16_pixels_unique[i].1 as i16;
-                    
-                        //red_diff
-                        list_of_color_diffs[0]=input_bytes[position] as i16-previous16_pixels_unique[i].0 as i16;
-                        //blue_diff
-                        list_of_color_diffs[2]=input_bytes[position+2] as i16-previous16_pixels_unique[i].2 as i16;
-                        list_of_color_diffs[0]-=list_of_color_diffs[1];
-                        list_of_color_diffs[2]-=list_of_color_diffs[1];
-                        //TODO create luminosity field run, for rgb?
-                        //when rgb or diff, calc lumo level, if not in +-8, go to other color layer(,write to output)
+                        
+                        if let Some(ref_pos)=position.checked_sub(rel_ref_lookup[i])
+                        {
 
-                        //TODO: wrap around 256/0 logic
-                        //TODO check 4 backreference
-                        //new algo: most used token in stream repeated
-                        /*if (run_count_green==1&&prev_luma_base_diff==list_of_color_diffs[1]||run_count_green > 1)&&
-                        (run_count_red==1&&prev_luma_other_diff1==list_of_color_diffs[0]||run_count_red > 1)&&
-                        (run_count_blue==1&&prev_luma_other_diff2==list_of_color_diffs[2]||run_count_blue > 1)
-                        {
-                            data.add_symbolu8(PREFIX_PREV_INPUT, SC_PREFIXES);
-                        }
-                        else*/
-                        //TODO special case when base high then other only low diff. must be branchless.
-                        //TODO re Add flexible base
-                        //TODO repeat until no RGB needed?use of repeat token needed
-                        //or take most occurred result instead of first result when adding from list of backrefs. 
-                        //use run type(s) code stream
-                        if position>0&&
-                        list_of_color_diffs[1]>=-32&&list_of_color_diffs[1]<32&&
-                        (run_count_red==1&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||run_count_red > 1)&&
-                        (run_count_blue==1&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||run_count_blue > 1)
-                        {
-                            data.add_symbolu8(PREFIX_COLOR_LUMA, SC_PREFIXES);
-                            data.add_symbolusize(i, SC_LUMA_BACK_REF);
+                            /*if offset != position&&input_bytes[position]==input_bytes[(offset )as usize]&&
+                            input_bytes[position+1]==input_bytes[(offset+1)as usize]&&
+                            input_bytes[position+2]==input_bytes[(offset+2)as usize]
+                            {
+                                data.add_symbolu8(PREFIX_REF, SC_PREFIXES);
+        
+                                data.add_symbolusize((y*3+x)-if offset>position{1}else{0}/*-(y*7+x)/25*/, SC_REF);
+                                ref_found=true;
+                                amount_of_refs+=1;
+                                break 'outer;
+                            }*/
+                        
+                            //green_diff
+                            list_of_color_diffs[1]=input_bytes[position+1] as i16-input_bytes[ref_pos+1] as i16;
+                        
+                            //red_diff
+                            list_of_color_diffs[0]=input_bytes[position] as i16-input_bytes[ref_pos] as i16;
+                            //blue_diff
+                            list_of_color_diffs[2]=input_bytes[position+2] as i16-input_bytes[ref_pos+2] as i16;
+                            list_of_color_diffs[0]-=list_of_color_diffs[1];
+                            list_of_color_diffs[2]-=list_of_color_diffs[1];
+                            //TODO create luminosity field run, for rgb?
+                            //when rgb or diff, calc lumo level, if not in +-8, go to other color layer(,write to output)
 
-                            data.add_symbolu8((list_of_color_diffs[1]+32) as u8, SC_LUMA_BASE_DIFF);
-                            if run_count_red==1
+                            //TODO: wrap around 256/0 logic
+                            //TODO check 4 backreference
+                            //new algo: most used token in stream repeated
+                            /*if (run_count_green==1&&prev_luma_base_diff==list_of_color_diffs[1]||run_count_green > 1)&&
+                            (run_count_red==1&&prev_luma_other_diff1==list_of_color_diffs[0]||run_count_red > 1)&&
+                            (run_count_blue==1&&prev_luma_other_diff2==list_of_color_diffs[2]||run_count_blue > 1)
                             {
-                                data.add_symbolu8((list_of_color_diffs[0]+8) as u8, SC_LUMA_OTHER_DIFF);
+                                data.add_symbolu8(PREFIX_PREV_INPUT, SC_PREFIXES);
                             }
-                            if run_count_blue==1
+                            else*/
+                            //TODO special case when base high then other only low diff. must be branchless.
+                            //TODO re Add flexible base
+                            //TODO repeat until no RGB needed?use of repeat token needed
+                            //or take most occurred result instead of first result when adding from list of backrefs. 
+                            //use run type(s) code stream
+                            if position>0&&
+                            list_of_color_diffs[1]>=-32&&list_of_color_diffs[1]<32&&
+                            (run_count_red==1&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||run_count_red > 1)&&
+                            (run_count_blue==1&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||run_count_blue > 1)
                             {
-                                data.add_symbolu8((list_of_color_diffs[2]+8) as u8, SC_LUMA_OTHER_DIFF);
+                                data.add_symbolu8(PREFIX_COLOR_LUMA, SC_PREFIXES);
+                                data.add_symbolusize(i, SC_LUMA_BACK_REF);
+
+                                data.add_symbolu8((list_of_color_diffs[1]+32) as u8, SC_LUMA_BASE_DIFF);
+                                if run_count_red==1
+                                {
+                                    data.add_symbolu8((list_of_color_diffs[0]+8) as u8, SC_LUMA_OTHER_DIFF);
+                                }
+                                if run_count_blue==1
+                                {
+                                    data.add_symbolu8((list_of_color_diffs[2]+8) as u8, SC_LUMA_OTHER_DIFF);
+                                }
+                                luma_occurences+=1;
+                                is_luma=true;
+                                previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
+                                previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
+                                break;
                             }
-                            luma_occurences+=1;
-                            is_luma=true;
-                            previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
-                            previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
-                            break;
+                            //TODO after loop is done
+                            /*else
+                            {
+                            }*/
+                        
                         }
-                        //TODO after loop is done
-                        /*else
+                        else
                         {
-                        }*/
-                    
+                            continue;
+                        }
                     }
                     //TODO update  previous16_pixels_unique when match is found
                     //write rgb
@@ -452,10 +453,6 @@ pub fn encode<W: io::Write>(
                         //loop
                         prev_run_count=green_run_length;
                         run_count_green+=green_run_length;
-                        if 0==position
-                        {
-                            dbg!(green_run_length);
-                        }
                         green_run_length = green_run_length - 3;
                         run_cntr+=1;
                         loop
@@ -552,6 +549,8 @@ pub fn encode<W: io::Write>(
     dbg!(luma_occurences);
     dbg!(red_pixel_run_amount);
     dbg!(run_occurrences);
+    dbg!(amount_of_refs);
+    dbg!(amount_of_diffs);
     
      //not used, but to make the dceoder dosen't crash at the end
      //output_writer.write_all(&[255])?;
@@ -630,14 +629,13 @@ pub fn decode<R: io::Read>(
     decoder.read_header_into_tree(&mut luma_backref_lookup).unwrap();
     decoder.read_header_into_tree(&mut small_diff_lookup).unwrap();
 
+    let rel_ref_lookup:[usize;8]=[channels,channels*image.width,channels*(1+image.width),2*channels,2*channels*image.width,channels*(2*image.width+1),channels*(image.width+2),channels*2*(image.width+1)];
 
     //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
     //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
 
     let mut prefix1=decoder.read_next_symbol(&prefix_lookup)?;
     //let width = width as usize;
-    let mut previous16_pixels_unique_offset = 0;
-    let mut previous16_pixels_unique : [[u8;3];64] = [[0,0,0];64];
     let mut run_values=[0u8;3];
 
     let mut prev_luma_base_diff=0;
@@ -782,10 +780,10 @@ pub fn decode<R: io::Read>(
                         }
                         PREFIX_COLOR_LUMA=>
                         {
-                            let backref = decoder.read_next_symbol(&luma_backref_lookup)?;
+                            let backref = rel_ref_lookup[decoder.read_next_symbol(&luma_backref_lookup)? as usize];
                             prev_luma_base_diff=decoder.read_next_symbol(&luma_base_diff_lookup)? as i16-32;
 
-                            output_vec[position+1]=(prev_luma_base_diff + (previous16_pixels_unique[backref as usize][1] as i16)) as u8;
+                            output_vec[position+1]=(prev_luma_base_diff + output_vec[position-backref+1] as i16) as u8;
 
                             if curr_lengths[1]>0
                             {
@@ -801,7 +799,7 @@ pub fn decode<R: io::Read>(
                             else
                             {
                                 prev_luma_other_diff1=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
-                                output_vec[position]=(prev_luma_other_diff1 + prev_luma_base_diff+(previous16_pixels_unique[backref as usize][0] as i16)) as u8;
+                                output_vec[position]=(prev_luma_other_diff1 + prev_luma_base_diff+(output_vec[position-backref] as i16)) as u8;
                             }
                             if curr_lengths[2]>0
                             {
@@ -812,10 +810,8 @@ pub fn decode<R: io::Read>(
                             else
                             {
                                 prev_luma_other_diff2=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
-                                output_vec[position+2]=(prev_luma_other_diff2 + prev_luma_base_diff+(previous16_pixels_unique[backref as usize][2] as i16)) as u8;
+                                output_vec[position+2]=(prev_luma_other_diff2 + prev_luma_base_diff+(output_vec[position-backref+2] as i16)) as u8;
                             }
-                            previous16_pixels_unique[previous16_pixels_unique_offset]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
-                            previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                         }
                         _=>
                         {
@@ -833,8 +829,6 @@ pub fn decode<R: io::Read>(
 
                                 }
                             }
-                            previous16_pixels_unique[previous16_pixels_unique_offset]=[output_vec[position],output_vec[position + 1],output_vec[position + 2]];
-                            previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                         }
 
                     }

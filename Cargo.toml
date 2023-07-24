@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 png = "0.17.7"
+itertools = "0.11.0"
 
 [profile.release]
 opt-level = 3
