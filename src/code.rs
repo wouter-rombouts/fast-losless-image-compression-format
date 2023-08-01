@@ -1,6 +1,7 @@
 const NICE: &[u8] = "nice".as_bytes();
 use crate::bitwriter;
 use crate::image::{Image, self};
+use crate::run::RunCountdown;
 use std::cmp::Reverse;
 use std::collections::{HashMap, BinaryHeap};
 use std::{time::Instant, *};
@@ -87,9 +88,7 @@ pub fn encode<W: io::Write>(
     let mut previous16_pixels_unique : [(u8,u8,u8);64] = [(0,0,0);64];
 
     //main loop
-    let mut run_count_red = 1;
-    let mut run_count_green = 1;
-    let mut run_count_blue = 1;
+
     let mut rgb_cntr = 0;
     let mut run_cntr=0;
     let mut luma_occurences=0;
@@ -98,7 +97,9 @@ pub fn encode<W: io::Write>(
 
     let rel_ref_lookup:[usize;8]=[channels,channels*image_header.width,channels*(1+image_header.width),2*channels,2*channels*image_header.width,channels*(2*image_header.width+1),channels*(image_header.width+2),channels*2*(image_header.width+1)];
 
-
+    let mut vrun_lookup_red = vec![0;image_header.width];
+    let mut vrun_lookup_green = vec![0;image_header.width];
+    let mut vrun_lookup_blue = vec![0;image_header.width];
     //calc the top pixels
     /*let top_pixels:Vec<[u8; 3]>;
     let mut map : HashMap<[u8;3],usize>= HashMap::new();
@@ -126,6 +127,8 @@ pub fn encode<W: io::Write>(
     //reassign pixel to different preferred stream if smaller aob is found
     //repeat until satisfied with result
     //add result to output stream
+
+
     for loop_index in 0..image_size/channels
     {
         //TODO cache for calc_pos_from function when values are generated from run lookups
@@ -133,9 +136,12 @@ pub fn encode<W: io::Write>(
         //let is_not_in_run=run_count_red ==1 ||run_count_green==1||run_count_blue==1;
         let prev_position = position;
         position=loop_index*channels;
-
-        if run_count_red ==1 ||run_count_green==1||run_count_blue==1
-        {            
+        let vrun_pos=loop_index%image_header.width;
+        let vrun_red_item= vrun_lookup_red[vrun_pos];
+        let vrun_green_item= vrun_lookup_green[vrun_pos];
+        let vrun_blue_item= vrun_lookup_blue[vrun_pos];
+        if vrun_red_item ==0 ||vrun_green_item==0||vrun_blue_item==0
+        {          
             
             //check color diff
             //TODO only check for non run colors                
@@ -175,21 +181,21 @@ pub fn encode<W: io::Write>(
                 //blue_diff
                 list_of_color_diffs[2]=input_bytes[position+2] as i16-input_bytes[prev_position+2] as i16;
 
-                if position>0&&(run_count_red == 1&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||run_count_red>1)&&
-                   (run_count_green == 1&&list_of_color_diffs[1]>=-8&&list_of_color_diffs[1]<8||run_count_green>1)&&
-                   (run_count_blue == 1&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||run_count_blue>1)
+                if position>0&&(vrun_red_item ==0&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||vrun_red_item >0)&&
+                   (vrun_green_item ==0&&list_of_color_diffs[1]>=-8&&list_of_color_diffs[1]<8||vrun_green_item >0)&&
+                   (vrun_blue_item ==0&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||vrun_blue_item >0)
                 {
 
                     data.add_symbolu8(PREFIX_SMALL_DIFF, SC_PREFIXES);
-                    if run_count_red == 1
+                    if vrun_red_item ==0
                     {                    
                         data.add_symbolu8((8+list_of_color_diffs[0]) as u8, SC_SMALL_DIFF);
                     }
-                    if run_count_green == 1
+                    if vrun_green_item ==0
                     {
                         data.add_symbolu8((8+list_of_color_diffs[1]) as u8, SC_SMALL_DIFF);
                     }
-                    if run_count_blue == 1
+                    if vrun_blue_item ==0
                     {
                         data.add_symbolu8((8+list_of_color_diffs[2]) as u8, SC_SMALL_DIFF);
                     }
@@ -219,7 +225,7 @@ pub fn encode<W: io::Write>(
                     {*/
                     
                     //TODO move to start to generate offsets
-                    let ymoveup_begin=2;
+                    /*let ymoveup_begin=2;
                     let mut ymoveup=2;
                     let ypos=position/(image_header.width*channels);
                     if ypos/ymoveup_begin<1
@@ -241,7 +247,7 @@ pub fn encode<W: io::Write>(
                     {
                         xmoveback+=xmoveback_begin+1+xpos-image_header.width
                     }*/
-                    let begin_offset:usize=position-ymoveup*image_header.width*channels-xmoveback*channels;
+                    let begin_offset:usize=position-ymoveup*image_header.width*channels-xmoveback*channels;*/
                     let mut list_of_color_diffs=[0;3];
                     let mut is_luma=false;
                     for i in 0..=7
@@ -291,25 +297,23 @@ pub fn encode<W: io::Write>(
                             //use run type(s) code stream
                             if position>0&&
                             list_of_color_diffs[1]>=-32&&list_of_color_diffs[1]<32&&
-                            (run_count_red==1&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||run_count_red > 1)&&
-                            (run_count_blue==1&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||run_count_blue > 1)
+                            (vrun_red_item ==0&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||vrun_red_item > 0)&&
+                            (vrun_blue_item ==0&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||vrun_blue_item > 0)
                             {
                                 data.add_symbolu8(PREFIX_COLOR_LUMA, SC_PREFIXES);
                                 data.add_symbolusize(i, SC_LUMA_BACK_REF);
 
                                 data.add_symbolu8((list_of_color_diffs[1]+32) as u8, SC_LUMA_BASE_DIFF);
-                                if run_count_red==1
+                                if vrun_red_item == 0
                                 {
                                     data.add_symbolu8((list_of_color_diffs[0]+8) as u8, SC_LUMA_OTHER_DIFF);
                                 }
-                                if run_count_blue==1
+                                if vrun_blue_item == 0
                                 {
                                     data.add_symbolu8((list_of_color_diffs[2]+8) as u8, SC_LUMA_OTHER_DIFF);
                                 }
                                 luma_occurences+=1;
                                 is_luma=true;
-                                previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
-                                previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                                 break;
                             }
                             //TODO after loop is done
@@ -330,16 +334,16 @@ pub fn encode<W: io::Write>(
                         data.add_symbolu8(PREFIX_RGB, SC_PREFIXES);
 
                         rgb_cntr+=1;
-                        if run_count_red == 1
+                        if vrun_red_item ==0
                         {
                             data.add_symbolu8(input_bytes[position].wrapping_sub(if position>0{input_bytes[prev_position]}else{0}), SC_RGB);
                         }        
-                        if run_count_green == 1
+                        if vrun_green_item ==0
                         {
                             data.add_symbolu8(input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0}), SC_RGB);
 
                         }
-                        if run_count_blue == 1
+                        if vrun_blue_item ==0
                         {
                             data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
@@ -350,57 +354,59 @@ pub fn encode<W: io::Write>(
                     }*/
                 }
             }
-        }
-
-        if run_count_red>1
-        {
-            run_count_red-=1;
-        }
-        if run_count_green>1
-        {
-            run_count_green-=1;
-        }
-        if run_count_blue>1
-        {
-            run_count_blue-=1;
-        }
-        
-        
-        prev_run_count=0;
+                    //TODO run: prev pixel cannot have same color
+            //if close pixel(s) are more similar than other run type, try that.
+            //Max diff, so when can take hrun as default?
+            prev_run_count=0;
             //check for color run
 
-            //run: run+colorsrun+0diff
-            //prefixes: run type, loop over red+green+blue or 0diff (red...flag+repeat flag)
-            //first do runs, then 0diff
-            //if no run, then no 0diff
-            if run_count_red==1
+            if vrun_red_item==0
             {
                 let mut red_run_length = 0;
+                let mut offset_step=1;
+                //split to see if exists
+                //TODO handle edge cases
+
+                let offset1=input_bytes.get(position.saturating_sub(image_header.width*channels));
+                let offset2=input_bytes.get(position.saturating_sub(channels));
+
+                /*if offset1 != None&& offset2 != None &&offset1.unwrap().abs_diff(input_bytes[position])<
+                offset2.unwrap().abs_diff(input_bytes[position])
+                {
+                    offset_step=image_header.width;
+                }*/
+                
                 //let mut prev_red_run_loop_position=position;
-                let mut red_run_loop_position=position+channels;
+                let mut red_run_loop_position=position+offset_step*channels;
                 
                 while red_run_loop_position<image_size&&
-                      input_bytes[red_run_loop_position]==input_bytes[position]/*&&
-                      input_bytes[red_run_loop_position+1]!=input_bytes[prev_red_run_loop_position+1]&&
-                      input_bytes[red_run_loop_position+2]!=input_bytes[prev_red_run_loop_position+2]*/
+                    input_bytes[red_run_loop_position]==input_bytes[position]/*&&
+                    input_bytes[red_run_loop_position+1]!=input_bytes[prev_red_run_loop_position+1]&&
+                    input_bytes[red_run_loop_position+2]!=input_bytes[prev_red_run_loop_position+2]*/
                 {
                     red_run_length+=1;
                     //prev_red_run_loop_position=red_run_loop_position;
-                    red_run_loop_position=position+(red_run_length+1)*channels;
+                    red_run_loop_position=position+(red_run_length+1)*offset_step*channels;
                 }
 
                 if red_run_length > 2
                 {
-                    //add red runlength
-                    //loop
-                    
-                    /*if loop_index<=140480
-                    {dbg!(position);dbg!(red_run_length);
-                        dbg!(input_bytes[(position)]);
-                    dbg!(red_run_loop_position);
-                    dbg!(input_bytes[(red_run_loop_position)]);}*/
-                    prev_run_count=red_run_length;
-                    run_count_red+=red_run_length;
+                    //Horizontal run
+                    if offset_step==1
+                    {
+                        
+                        //add red runlength
+                        for i in 1..=red_run_length
+                        {
+                            vrun_lookup_red[(vrun_pos+i)%image_header.width]+=1;
+                        }
+                    }
+                    else
+                    {
+                        vrun_lookup_red[vrun_pos]+=red_run_length;
+                    }
+
+                    //run_count_red+=red_run_length;
                     red_pixel_run_amount+=red_run_length;
                     red_run_length = red_run_length - 3;
                     run_cntr+=1;
@@ -420,105 +426,146 @@ pub fn encode<W: io::Write>(
                 }
             }
 
-            if run_count_green==1
+            if vrun_green_item==0
             {
                 let mut green_run_length = 0;
+
+                let mut offset_step=1;
+
+                let offset1=input_bytes.get((position+1).saturating_sub(image_header.width*channels));
+                let offset2=input_bytes.get((position+1).saturating_sub(channels));
+                /*if offset1 != None&& offset2 != None &&offset1.unwrap().abs_diff(input_bytes[position+1])<
+                offset2.unwrap().abs_diff(input_bytes[position+1])
+                {
+                    offset_step=image_header.width;
+                }*/
+
                 //let mut prev_green_run_loop_position=position;
-                let mut green_run_loop_position=position+channels;
+                let mut green_run_loop_position=position+offset_step*channels;
                 
                 while green_run_loop_position<image_size&&
-                      input_bytes[green_run_loop_position+1]==input_bytes[position+1]/*&&
-                      input_bytes[green_run_loop_position]!=input_bytes[prev_green_run_loop_position]&&
-                      input_bytes[green_run_loop_position+2]!=input_bytes[prev_green_run_loop_position+2]*/
+                    input_bytes[green_run_loop_position+1]==input_bytes[position+1]/*&&
+                    input_bytes[green_run_loop_position]!=input_bytes[prev_green_run_loop_position]&&
+                    input_bytes[green_run_loop_position+2]!=input_bytes[prev_green_run_loop_position+2]*/
                 {
                     green_run_length+=1;
                     //prev_green_run_loop_position=green_run_loop_position;
-                    green_run_loop_position=position+(green_run_length+1)*channels;
+                    green_run_loop_position=position+(green_run_length+1)*offset_step*channels;
                 }
 
                 if green_run_length > 2
                 {
-                    /*if loop_index<=140480
-                    {dbg!(position);dbg!(green_run_length);
-                        dbg!(input_bytes[(position)+1]);
-                    dbg!(green_run_loop_position);
-                    dbg!(input_bytes[(green_run_loop_position)+1]);}*/
-                    /*if prev_run_count==green_run_length
+                    //Horizontal run
+                    if offset_step==1
                     {
-                        data.add_symbolu8(PREFIX_PREV_INPUT, SC_PREFIXES);
-                    }
-                    else*/
-                    {
-                        //add green runlength
-                        //loop
-                        prev_run_count=green_run_length;
-                        run_count_green+=green_run_length;
-                        green_run_length = green_run_length - 3;
-                        run_cntr+=1;
-                        loop
+                        
+                        //add red runlength
+                        for i in 1..=green_run_length
                         {
-                            data.add_symbolu8(PREFIX_GREEN_RUN, SC_PREFIXES);
-                            data.add_symbolu8((green_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
-                            run_occurrences[(green_run_length & 0b0000_0111)]+=1;
-                            if green_run_length <8
-                            {
-                                break;
-                            }
-                            green_run_length = green_run_length >> 3;
+                            vrun_lookup_green[(vrun_pos+i)%image_header.width]+=1;
                         }
+                    }
+                    else
+                    {
+                        vrun_lookup_green[vrun_pos]+=green_run_length;
+                    }
+                    //add green runlength
+                    //loop
+                    prev_run_count=green_run_length;
+                    green_run_length = green_run_length - 3;
+                    run_cntr+=1;
+                    loop
+                    {
+                        data.add_symbolu8(PREFIX_GREEN_RUN, SC_PREFIXES);
+                        data.add_symbolu8((green_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
+                        run_occurrences[(green_run_length & 0b0000_0111)]+=1;
+                        if green_run_length <8
+                        {
+                            break;
+                        }
+                        green_run_length = green_run_length >> 3;
                     }
                 }
             }
-
-            if run_count_blue==1
+            //TODO use iterator for hrun/vrun
+            if vrun_blue_item==0
             {
                 let mut blue_run_length = 0;
-                //let mut prev_blue_run_loop_position=position;
-                let mut blue_run_loop_position=position+channels;
+
+                let mut offset_step=1;
+
+                let offset1=input_bytes.get((position+2).saturating_sub(image_header.width*channels));
+                let offset2=input_bytes.get((position+2).saturating_sub(channels));
+                /*if offset1 != None&& offset2 != None &&offset1.unwrap().abs_diff(input_bytes[position+2])<
+                offset2.unwrap().abs_diff(input_bytes[position+2])
+                {
+                    offset_step=image_header.width;
+                }*/
+
+                let mut blue_run_loop_position=position+offset_step*channels;
                 
                 while blue_run_loop_position<image_size&&
-                      input_bytes[blue_run_loop_position+2]==input_bytes[position+2]/*&&
-                      input_bytes[blue_run_loop_position+1]!=input_bytes[prev_blue_run_loop_position+1]&&
-                      input_bytes[blue_run_loop_position]!=input_bytes[prev_blue_run_loop_position]*/
+                    input_bytes[blue_run_loop_position+2]==input_bytes[position+2]/*&&
+                    input_bytes[blue_run_loop_position+1]!=input_bytes[prev_blue_run_loop_position+1]&&
+                    input_bytes[blue_run_loop_position]!=input_bytes[prev_blue_run_loop_position]*/
                 {
                     blue_run_length+=1;
                     //prev_blue_run_loop_position=blue_run_loop_position;
-                    blue_run_loop_position=position+(blue_run_length+1)*channels;
+                    blue_run_loop_position=position+(blue_run_length+1)*offset_step*channels;
                 }
 
                 if blue_run_length > 2
-                {/*if loop_index<=140480
-                    {dbg!(position);dbg!(blue_run_length);
-                        dbg!(input_bytes[(position)+2]);
-                    dbg!(blue_run_loop_position);
-                    dbg!(input_bytes[(blue_run_loop_position)+2]);}*/
-                    /*if prev_run_count==blue_run_length
+                {
+
+
+                    //Horizontal run
+                    if offset_step==1
                     {
-                        data.add_symbolu8(PREFIX_PREV_INPUT, SC_PREFIXES);
-                    }
-                    else*/
-                    {
-                        //add blue runlength
-                        //loop
-                        //prev_run_count=blue_run_length;
-                        run_count_blue+=blue_run_length;
-                        blue_run_length = blue_run_length - 3;
-                        run_cntr+=1;
-                        loop
+                        
+                        //add red runlength
+                        for i in 1..=blue_run_length
                         {
-                            data.add_symbolu8(PREFIX_BLUE_RUN, SC_PREFIXES);
-                            data.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
-                            run_occurrences[(blue_run_length & 0b0000_0111)]+=1;
-                            if blue_run_length <8
-                            {
-                                break;
-                            }
-                            blue_run_length = blue_run_length >> 3;
+                            vrun_lookup_blue[(vrun_pos+i)%image_header.width]+=1;
                         }
+                    }
+                    else
+                    {
+                        vrun_lookup_blue[vrun_pos]+=blue_run_length;
+                    }
+                    //add blue runlength
+                    //loop
+                    blue_run_length = blue_run_length - 3;
+                    run_cntr+=1;
+                    loop
+                    {
+                        data.add_symbolu8(PREFIX_BLUE_RUN, SC_PREFIXES);
+                        data.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
+                        run_occurrences[(blue_run_length & 0b0000_0111)]+=1;
+                        if blue_run_length <8
+                        {
+                            break;
+                        }
+                        blue_run_length = blue_run_length >> 3;
                     }
                 }
             }
+        }
 
+        
+
+
+            if vrun_red_item >0
+            {
+                vrun_lookup_red[vrun_pos]-=1;
+            }
+            if vrun_green_item >0
+            {
+                vrun_lookup_green[vrun_pos]-=1;
+            }
+            if vrun_blue_item >0
+            {
+                vrun_lookup_blue[vrun_pos]-=1;
+            }
             
         //after adding non run colors
 
@@ -641,6 +688,8 @@ pub fn decode<R: io::Read>(
     let mut prev_luma_base_diff=0;
     let mut prev_luma_other_diff1=0;
     let mut prev_luma_other_diff2=0;
+
+    
     //let mut temp_time=0;
     //curr_lengths[0] is red
     //curr_lengths[1] is green
@@ -652,85 +701,17 @@ pub fn decode<R: io::Read>(
     #[cfg(debug_assertions)]
     io::Read::read_to_end(&mut fs::File::open("dump.bin").unwrap(), &mut dump).ok();
     
-    let mut pos_subblock_lookup =Vec::<usize>::with_capacity(image::SUBBLOCK_HEIGHT_MAX*image::SUBBLOCK_WIDTH_MAX);
-    for y in 0..image::SUBBLOCK_HEIGHT_MAX
-    {
-        for x in 0..image::SUBBLOCK_WIDTH_MAX
-        {
-            pos_subblock_lookup.push(channels*(y*image.width+if y%2==1 {image::SUBBLOCK_WIDTH_MAX-x-1}else{x}));
-        }
-    }
-    let mut pos_subblock_lookup_alt =Vec::<usize>::with_capacity(image::SUBBLOCK_HEIGHT_MAX*image::SUBBLOCK_WIDTH_MAX);
-    for y in 0..image::SUBBLOCK_HEIGHT_MAX
-    {
-        for x in 0..image::SUBBLOCK_WIDTH_MAX
-        {
-            pos_subblock_lookup_alt.push(channels*((image::SUBBLOCK_HEIGHT_MAX-y-1) * image.width+if y%2==1 {image::SUBBLOCK_WIDTH_MAX-x-1}else{x}));
-        }
-    }
-
-    let mut pos_subblock_xleftover_lookup: Vec<usize>;
-    let mut pos_subblock_yleftover_lookup: Vec<usize>;
-    let mut list_of_subblocks_in_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
-    let mut list_of_subblocks_in_bottom_widthblock:Vec<&[usize]>=Vec::with_capacity(image.subblocks_in_width+1);
-    let mut pos_subblock_xyleftover_lookup: Vec<usize>;
-    for n in 0..image.subblocks_in_width
-    {
-        list_of_subblocks_in_widthblock.push(if n%2==0{&pos_subblock_lookup}else{&pos_subblock_lookup_alt});
-    }
-    if image.width_subblock_leftover>0
-    {
-        pos_subblock_xleftover_lookup=Vec::with_capacity(image.width_subblock_leftover*image::SUBBLOCK_HEIGHT_MAX);
-        for h in 0..image::SUBBLOCK_HEIGHT_MAX
-        {
-            for i in 0..image.width_subblock_leftover
-            {
-                pos_subblock_xleftover_lookup.push((h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels);
-            }
-        }
-        list_of_subblocks_in_widthblock.push(&pos_subblock_xleftover_lookup);
-    }
-    //TODO push list_of_subblocks_in_widthblock over the height except leftover
-    let mut list_of_subblocks_in_heightblock:Vec<&Vec<&[usize]>>=Vec::with_capacity(image.subblocks_in_height+1);
-    //add top width blocks
-    for _ in 0..image.subblocks_in_height
-    {
-        list_of_subblocks_in_heightblock.push(&list_of_subblocks_in_widthblock);
-    }
-    //bottom width block
-    if image.height_subblock_leftover>0
-    {
-        pos_subblock_yleftover_lookup=Vec::with_capacity(image.height_subblock_leftover*image::SUBBLOCK_WIDTH_MAX);
-        for h in 0..image.height_subblock_leftover
-        {
-            //pos_subblock_xleftover_lookup.extend((0..image.width_subblock_leftover).map(|i|(h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels));
-            for i in 0..image::SUBBLOCK_WIDTH_MAX
-            {
-                pos_subblock_yleftover_lookup.push((h*image.width+if h%2==1{image::SUBBLOCK_WIDTH_MAX-i-1}else{ i})*channels);
-            }
-        }
-        list_of_subblocks_in_bottom_widthblock.push(&pos_subblock_yleftover_lookup);
-        if image.width_subblock_leftover>0
-        {
-            pos_subblock_xyleftover_lookup=Vec::with_capacity(image.height_subblock_leftover*image.width_subblock_leftover);
-            for h in 0..image.height_subblock_leftover
-            {
-                //pos_subblock_xleftover_lookup.extend((0..image.width_subblock_leftover).map(|i|(h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels));
-                for i in 0..image.width_subblock_leftover
-                {
-                    pos_subblock_xyleftover_lookup.push((h*image.width+if h%2==1{image.width_subblock_leftover-i-1}else{ i})*channels);
-                }
-            }
-            list_of_subblocks_in_bottom_widthblock.push(&pos_subblock_xyleftover_lookup);
-            
-        }
-        list_of_subblocks_in_heightblock.push(&list_of_subblocks_in_bottom_widthblock);
-
-    }
+    
     let mut prev_pos=0;
-    let mut curr_lengths: [usize;3]=[0;3];
+
     #[cfg(debug_assertions)]
     let mut loopindex=0;
+    let mut redhrun_color=0;
+    let mut redhrun_iter=(0usize..0).rev();
+    let mut greenhrun_color=0;
+    let mut greenhrun_iter=(0usize..0).rev();
+    let mut bluehrun_color=0;
+    let mut bluehrun_iter=(0usize..0).rev();
     while position<image_size 
     {
     /*for y in 0..list_of_subblocks_in_heightblock.len()
@@ -741,41 +722,42 @@ pub fn decode<R: io::Read>(
             {*/
                 //y, then x
                 //position = channels*(y*image.width_block_size+x*image::SUBBLOCK_WIDTH_MAX)+list_of_subblocks_in_heightblock[y][x][i];
-
-                if curr_lengths.iter().any(|&x| x == 0)
+                let red_run_item_result = redhrun_iter.next();
+                let green_run_item_result = greenhrun_iter.next();    
+                let blue_run_item_result = bluehrun_iter.next();    
+                /*if position<10||position>156044*3
                 {
-
+                    dbg!(prefix1);}*/
+                if red_run_item_result == None || green_run_item_result == None ||blue_run_item_result == None
+                {
                     //let headertime = Instant::now();
                     match prefix1
                     {
                         PREFIX_SMALL_DIFF=>
                         {
-                            if curr_lengths[0]==0
+                            if red_run_item_result == None
                             {
                                 output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-8 +output_vec[prev_pos] as i16)as u8;
                             }
                             else
                             {
-                                curr_lengths[0] -= 1;
-                                output_vec[position]=run_values[0];
+                                output_vec[position]=redhrun_color;
                             }
-                            if curr_lengths[1]==0
+                            if green_run_item_result == None
                             {
                                 output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-8 +output_vec[prev_pos+1] as i16)as u8;
                             }
                             else
                             {
-                                curr_lengths[1] -= 1;
-                                output_vec[position+1]=run_values[1];
+                                output_vec[position+1]=greenhrun_color;
                             }
-                            if curr_lengths[2]==0
+                            if blue_run_item_result == None
                             {
                                 output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-8 +output_vec[prev_pos+2] as i16)as u8;
                             }
                             else
                             {
-                                curr_lengths[2] -= 1;
-                                output_vec[position+2]=run_values[2];
+                                output_vec[position+2]=bluehrun_color;
                             }
                         }
                         PREFIX_COLOR_LUMA=>
@@ -785,49 +767,56 @@ pub fn decode<R: io::Read>(
 
                             output_vec[position+1]=(prev_luma_base_diff + output_vec[position-backref+1] as i16) as u8;
 
-                            if curr_lengths[1]>0
+                            if green_run_item_result != None
                             {
-                                curr_lengths[1] -= 1;
-                                output_vec[position+1]=run_values[1];
+                                output_vec[position+1]=greenhrun_color;
                             }
-                            if curr_lengths[0]>0
-                            {
-                                
-                                curr_lengths[0] -= 1;
-                                output_vec[position]=run_values[0];
-                            }
-                            else
+
+                            if red_run_item_result == None
                             {
                                 prev_luma_other_diff1=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position]=(prev_luma_other_diff1 + prev_luma_base_diff+(output_vec[position-backref] as i16)) as u8;
                             }
-                            if curr_lengths[2]>0
-                            {
-                                
-                                curr_lengths[2] -= 1;
-                                output_vec[position+2]=run_values[2];
-                            }
                             else
+                            {
+                                output_vec[position]=redhrun_color;
+                            }
+                            
+                            if blue_run_item_result == None
                             {
                                 prev_luma_other_diff2=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position+2]=(prev_luma_other_diff2 + prev_luma_base_diff+(output_vec[position-backref+2] as i16)) as u8;
                             }
+                            else
+                            {
+                                output_vec[position+2]=bluehrun_color;
+                            }
                         }
                         _=>
                         {
-                            for i in 0..=2
+                            if red_run_item_result == None
                             {
-                                if curr_lengths[i] == 0
-                                {              
-                                    //RGB
-                                    output_vec[position+i]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+i]);
-                                }
-                                else 
-                                {
-                                    curr_lengths[i] -= 1;
-                                    output_vec[position+i]=run_values[i];
-
-                                }
+                                output_vec[position]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos]);
+                            }
+                            else
+                            {
+                                output_vec[position]=redhrun_color;
+                            }
+                            if green_run_item_result == None
+                            {
+                                output_vec[position+1]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+1]);
+                            }
+                            else
+                            {
+                                output_vec[position+1]=greenhrun_color;
+                            }
+                            if blue_run_item_result == None
+                            {
+                                output_vec[position+2]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+2]);
+                            }
+                            else
+                            {
+                                output_vec[position+2]=bluehrun_color;
                             }
                         }
 
@@ -837,11 +826,13 @@ pub fn decode<R: io::Read>(
                     //temp_time+=headertime.elapsed().as_nanos();
                     prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     let mut temp_curr_runcount: u8=0;
-
+                    let mut red_run_length=0;
+                    //dbg!(position);
+                    //dbg!(prefix1);
                     while prefix1 == PREFIX_RED_RUN
                     {
                         //run lengths
-                        curr_lengths[PREFIX_RED_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
+                        red_run_length +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
                         temp_curr_runcount += 3;
                         prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     }
@@ -849,16 +840,20 @@ pub fn decode<R: io::Read>(
                     if temp_curr_runcount>0
                     {
 
-                        curr_lengths[PREFIX_RED_RUN as usize] += 3;
-                                    
-                        run_values[0]=output_vec[position];
+                        red_run_length += 3;
+                        //dbg!(red_run_length);
+                        redhrun_color=output_vec[position];
+                        redhrun_iter=(0..red_run_length).rev();
                         temp_curr_runcount=0;
                     }
 
+                    //dbg!(position);
+                    //dbg!(prefix1);
+                    let mut green_run_length=0;
                     while prefix1 == PREFIX_GREEN_RUN
                     {  
                         //run lengths
-                        curr_lengths[PREFIX_GREEN_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
+                        green_run_length +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
                         temp_curr_runcount += 3;
                         prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     }   
@@ -866,26 +861,36 @@ pub fn decode<R: io::Read>(
                     if temp_curr_runcount>0
                     {
 
-                        curr_lengths[PREFIX_GREEN_RUN as usize] += 3;
+                        green_run_length += 3;
                                     
-                        run_values[1]=output_vec[position+1];
+
+                        greenhrun_color=output_vec[position+1];
+                        greenhrun_iter=(0..green_run_length).rev();
                         temp_curr_runcount=0;
                     }
 
+                    //dbg!(position);
+                    //dbg!(prefix1);
+                    let mut blue_run_length=0;
                     while prefix1 == PREFIX_BLUE_RUN
                     {  
                         //run lengths
-                        curr_lengths[PREFIX_BLUE_RUN as usize] +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
+                        blue_run_length +=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
                         temp_curr_runcount += 3;
                         prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     }
-
+                    
+                    //dbg!(position);
+                    //dbg!(prefix1);
                     if temp_curr_runcount>0
                     {
 
-                        curr_lengths[PREFIX_BLUE_RUN as usize] += 3;
+                        blue_run_length += 3;
+                        //dbg!(blue_run_length);
                                     
-                        run_values[2]=output_vec[position+2];
+
+                        bluehrun_color=output_vec[position+2];
+                        bluehrun_iter=(0..blue_run_length).rev();
                     }
 
 
@@ -893,11 +898,9 @@ pub fn decode<R: io::Read>(
                 }
                 else
                 {
-                    for i in 0..=2
-                    {
-                        curr_lengths[i] -= 1;
-                        output_vec[position+i]=run_values[i];
-                    }
+                    output_vec[position]=redhrun_color;
+                    output_vec[position+1]=greenhrun_color;
+                    output_vec[position+2]=bluehrun_color;
                 }
 
                 #[cfg(debug_assertions)]
