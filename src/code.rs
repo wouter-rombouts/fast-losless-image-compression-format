@@ -15,6 +15,7 @@ pub(crate) const PREFIX_BLUE_RUN: u8 = 2;
 pub(crate) const PREFIX_RGB: u8 = 3;
 pub(crate) const PREFIX_COLOR_LUMA: u8 = 4;
 pub(crate) const PREFIX_SMALL_DIFF: u8 = 5;
+pub(crate) const PREFIX_BACK_REF: u8 = 6;
 //pub(crate) const PREFIX_REF: u8 = 6;
 //stream codes
 pub(crate) const SC_RGB: u8 = 0;
@@ -66,7 +67,7 @@ pub fn encode<W: io::Write>(
     //0==PREFIX_RGB
     data.add_output_type(256);
     //1==SC_PREFIXES
-    data.add_output_type(6);
+    data.add_output_type(7);
     //2==SC_RUN_LENGTHS
     data.add_output_type(8);
     //3==SC_LUMA_BASE_DIFF
@@ -74,7 +75,7 @@ pub fn encode<W: io::Write>(
     //4==SC_LUMA_OTHER_DIFF
     data.add_output_type(16);
     //5==SC_LUMA_BACK_REF
-    data.add_output_type(8);
+    data.add_output_type(10);
     //6==SC_SMALL_DIFF
     data.add_output_type(16);
     //7==SC_REF
@@ -95,32 +96,24 @@ pub fn encode<W: io::Write>(
     let mut red_pixel_run_amount=0;
     let mut run_occurrences=[0;8];
 
-    let rel_ref_lookup:[usize;8]=[channels,channels*image_header.width,channels*(1+image_header.width),2*channels,2*channels*image_header.width,channels*(2*image_header.width+1),channels*(image_header.width+2),channels*2*(image_header.width+1)];
+    let rel_ref_lookup:[usize;10]=[channels,channels*image_header.width,channels*(1+image_header.width),2*channels,2*channels*image_header.width,channels*(2*image_header.width+1),channels*(image_header.width+2),channels*2*(image_header.width+1),3*channels,3*channels*image_header.width];
+    
+    
+    let mut red_hrun_iter=(0..0).rev();
+    let mut red_vrun_list_iter=vec![(0..0).rev();image_header.width];
+    //let mut red_drun_list_iter=vec![(0..0).rev();image_header.width+1];
+    let mut green_hrun_iter=(0..0).rev();
+    let mut green_vrun_list_iter=vec![(0..0).rev();image_header.width];
+    //let mut green_drun_list_iter=vec![(0..0).rev();image_header.width+1];
+    let mut blue_hrun_iter=(0..0).rev();
+    let mut blue_vrun_list_iter=vec![(0..0).rev();image_header.width];
+    //let mut blue_drun_list_iter=vec![(0..0).rev();image_header.width+1];
+    //let mut redrun=(0usize..4000).rev().map(|x| redrunstart+redrunstep * x*channels);
 
-    let mut vrun_lookup_red = vec![0;image_header.width];
-    let mut vrun_lookup_green = vec![0;image_header.width];
-    let mut vrun_lookup_blue = vec![0;image_header.width];
-    //calc the top pixels
-    /*let top_pixels:Vec<[u8; 3]>;
-    let mut map : HashMap<[u8;3],usize>= HashMap::new();
-    let mut dummy=[0;3];
-    for x in input_bytes.chunks_exact(3)
-    {
-        dummy.copy_from_slice(x);
-        *map.entry(dummy).or_default() += 1;
-    }
-
-    let mut heap = BinaryHeap::with_capacity(16 + 1);
-    for (x, count) in map.into_iter()
-    {
-        heap.push(Reverse((count, x)));
-        if heap.len() > 16
-        {
-            heap.pop();
-        }
-    }
-    top_pixels=heap.into_sorted_vec().into_iter().map(|r| r.0.1).collect();*/
-    //println!("top_pixels: {:?}",top_pixels);
+    //TODO create list like vertical run, but with mod width+1 instead of width for diagonal run
+    //hrun breaks all other runs
+    //vrun breaks drun
+    //drun breaks vrun
     
     //TODO add symbols as normal, but also add the symbols for other streams
     // calculate aob for each stream at the end, based on preferred stream(same value as before)
@@ -137,10 +130,16 @@ pub fn encode<W: io::Write>(
         let prev_position = position;
         position=loop_index*channels;
         let vrun_pos=loop_index%image_header.width;
-        let vrun_red_item= vrun_lookup_red[vrun_pos];
-        let vrun_green_item= vrun_lookup_green[vrun_pos];
-        let vrun_blue_item= vrun_lookup_blue[vrun_pos];
-        if vrun_red_item ==0 ||vrun_green_item==0||vrun_blue_item==0
+        //let drun_pos=loop_index%(image_header.width+1);
+        let testb=blue_vrun_list_iter[vrun_pos].next();
+        let testr=red_vrun_list_iter[vrun_pos].next();
+        let testg=green_vrun_list_iter[vrun_pos].next();
+        let is_not_red_run_item = red_hrun_iter.next() == None && testr == None /*&& red_drun_list_iter[drun_pos].next() == None*/;
+        let is_not_green_run_item = green_hrun_iter.next()==None &&  testg==None/* && green_drun_list_iter[drun_pos].next() == None*/;
+        let is_not_blue_run_item = blue_hrun_iter.next()==None && testb==None/* && blue_drun_list_iter[drun_pos].next() == None*/;
+
+
+        if is_not_red_run_item ||is_not_green_run_item||is_not_blue_run_item
         {          
             
             //check color diff
@@ -181,25 +180,38 @@ pub fn encode<W: io::Write>(
                 //blue_diff
                 list_of_color_diffs[2]=input_bytes[position+2] as i16-input_bytes[prev_position+2] as i16;
 
-                if position>0&&(vrun_red_item ==0&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||vrun_red_item >0)&&
-                   (vrun_green_item ==0&&list_of_color_diffs[1]>=-8&&list_of_color_diffs[1]<8||vrun_green_item >0)&&
-                   (vrun_blue_item ==0&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||vrun_blue_item >0)
+                if position>0 &&(is_not_red_run_item && list_of_color_diffs[0]>=-8 && list_of_color_diffs[0]<8 || !is_not_red_run_item) &&
+                   (is_not_green_run_item && list_of_color_diffs[1]>=-8 && list_of_color_diffs[1]<8 || !is_not_green_run_item) &&
+                   (is_not_blue_run_item && list_of_color_diffs[2]>=-8 && list_of_color_diffs[2]<8 || !is_not_blue_run_item)
                 {
 
-                    data.add_symbolu8(PREFIX_SMALL_DIFF, SC_PREFIXES);
-                    if vrun_red_item ==0
-                    {                    
-                        data.add_symbolu8((8+list_of_color_diffs[0]) as u8, SC_SMALL_DIFF);
-                    }
-                    if vrun_green_item ==0
+                    if (is_not_red_run_item && list_of_color_diffs[0]==0 || !is_not_red_run_item) &&
+                    (is_not_green_run_item && list_of_color_diffs[1]==0 || !is_not_green_run_item) &&
+                    (is_not_blue_run_item && list_of_color_diffs[2]==0 || !is_not_blue_run_item)
                     {
-                        data.add_symbolu8((8+list_of_color_diffs[1]) as u8, SC_SMALL_DIFF);
+
+                        data.add_symbolu8(PREFIX_BACK_REF, SC_PREFIXES);
                     }
-                    if vrun_blue_item ==0
+                    else
                     {
-                        data.add_symbolu8((8+list_of_color_diffs[2]) as u8, SC_SMALL_DIFF);
+                        data.add_symbolu8(PREFIX_SMALL_DIFF, SC_PREFIXES);
+                        if is_not_red_run_item
+                        {                    
+                            data.add_symbolu8((8+list_of_color_diffs[0]) as u8, SC_SMALL_DIFF);
+                        }
+                        if is_not_green_run_item
+                        {
+                            data.add_symbolu8((8+list_of_color_diffs[1]) as u8, SC_SMALL_DIFF);
+                        }
+                        if is_not_blue_run_item
+                        {
+                            data.add_symbolu8((8+list_of_color_diffs[2]) as u8, SC_SMALL_DIFF);
+                        }
+                        amount_of_diffs+=1;
                     }
-                    amount_of_diffs+=1;
+                        
+                    
+
                 }
                 else
                 {
@@ -250,7 +262,7 @@ pub fn encode<W: io::Write>(
                     let begin_offset:usize=position-ymoveup*image_header.width*channels-xmoveback*channels;*/
                     let mut list_of_color_diffs=[0;3];
                     let mut is_luma=false;
-                    for i in 0..=7
+                    for i in 0..=9
                     {
                         
                         if let Some(ref_pos)=position.checked_sub(rel_ref_lookup[i])
@@ -297,18 +309,20 @@ pub fn encode<W: io::Write>(
                             //use run type(s) code stream
                             if position>0&&
                             list_of_color_diffs[1]>=-32&&list_of_color_diffs[1]<32&&
-                            (vrun_red_item ==0&&list_of_color_diffs[0]>=-8&&list_of_color_diffs[0]<8||vrun_red_item > 0)&&
-                            (vrun_blue_item ==0&&list_of_color_diffs[2]>=-8&&list_of_color_diffs[2]<8||vrun_blue_item > 0)
+                            (is_not_red_run_item && list_of_color_diffs[0]>=-8 && list_of_color_diffs[0]<8 || !is_not_red_run_item)&&
+                            (is_not_blue_run_item && list_of_color_diffs[2]>=-8 && list_of_color_diffs[2]<8 || !is_not_blue_run_item)
                             {
+
+                                
                                 data.add_symbolu8(PREFIX_COLOR_LUMA, SC_PREFIXES);
                                 data.add_symbolusize(i, SC_LUMA_BACK_REF);
 
                                 data.add_symbolu8((list_of_color_diffs[1]+32) as u8, SC_LUMA_BASE_DIFF);
-                                if vrun_red_item == 0
+                                if is_not_red_run_item
                                 {
                                     data.add_symbolu8((list_of_color_diffs[0]+8) as u8, SC_LUMA_OTHER_DIFF);
                                 }
-                                if vrun_blue_item == 0
+                                if is_not_blue_run_item
                                 {
                                     data.add_symbolu8((list_of_color_diffs[2]+8) as u8, SC_LUMA_OTHER_DIFF);
                                 }
@@ -334,16 +348,16 @@ pub fn encode<W: io::Write>(
                         data.add_symbolu8(PREFIX_RGB, SC_PREFIXES);
 
                         rgb_cntr+=1;
-                        if vrun_red_item ==0
+                        if is_not_red_run_item
                         {
                             data.add_symbolu8(input_bytes[position].wrapping_sub(if position>0{input_bytes[prev_position]}else{0}), SC_RGB);
                         }        
-                        if vrun_green_item ==0
+                        if is_not_green_run_item
                         {
                             data.add_symbolu8(input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0}), SC_RGB);
 
                         }
-                        if vrun_blue_item ==0
+                        if is_not_blue_run_item
                         {
                             data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
@@ -360,23 +374,35 @@ pub fn encode<W: io::Write>(
             prev_run_count=0;
             //check for color run
 
-            if vrun_red_item==0
+            if is_not_red_run_item
             {
                 let mut red_run_length = 0;
                 let mut offset_step=1;
                 //split to see if exists
                 //TODO handle edge cases
 
-                let offset1=input_bytes.get(position.saturating_sub(image_header.width*channels));
-                let offset2=input_bytes.get(position.saturating_sub(channels));
+                let offsety=input_bytes.get(position.saturating_sub(image_header.width*channels));
+                let offsetx=input_bytes.get(position.saturating_sub(channels));
+                //TODO diagonal run?2 new directions for run, how to pick right one?
+                //after direction pick, determine which colors to run with.
+                //rgbrun by default, exception to be color run only
 
-                /*if offset1 != None&& offset2 != None &&offset1.unwrap().abs_diff(input_bytes[position])<
-                offset2.unwrap().abs_diff(input_bytes[position])
+                //dynamic run: color runs can be 0. main loop will have only red run as it is mandatory.
+                //after first red run part, when 3 zero's in run length part are encountered, the run must stop
+                //some numbers have 000 in their binary presentation, and must be excluded
+                //can also repeat run for the entire run, 0 each time when already 0
+                //this deletes colorrun prefixes, while allowing for partial color runs
+
+                //let offsetxy=input_bytes.get(position.saturating_sub((image_header.width+1)*channels));
+
+                let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(input_bytes[position])};
+                let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(input_bytes[position])};
+                //let xy_diff=if offsetxy == None {0} else {offsetxy.unwrap().abs_diff(input_bytes[position])};
+
+                /*if y_diff<=x_diff
                 {
                     offset_step=image_header.width;
                 }*/
-                
-                //let mut prev_red_run_loop_position=position;
                 let mut red_run_loop_position=position+offset_step*channels;
                 
                 while red_run_loop_position<image_size&&
@@ -391,19 +417,24 @@ pub fn encode<W: io::Write>(
 
                 if red_run_length > 2
                 {
+                    //TODO closure?
                     //Horizontal run
                     if offset_step==1
                     {
                         
                         //add red runlength
-                        for i in 1..=red_run_length
-                        {
-                            vrun_lookup_red[(vrun_pos+i)%image_header.width]+=1;
-                        }
+                        red_hrun_iter=(0..red_run_length).rev();
                     }
                     else
                     {
-                        vrun_lookup_red[vrun_pos]+=red_run_length;
+                        //if offset_step==image_header.width
+                        //{
+                            red_vrun_list_iter[vrun_pos]=(0..red_run_length).rev();
+                        //}
+                        //else
+                        //{
+                        //    red_drun_list_iter[drun_pos]=(0..red_run_length).rev();
+                        //}
                     }
 
                     //run_count_red+=red_run_length;
@@ -426,18 +457,30 @@ pub fn encode<W: io::Write>(
                 }
             }
 
-            if vrun_green_item==0
+            if is_not_green_run_item
             {
                 let mut green_run_length = 0;
 
                 let mut offset_step=1;
 
-                let offset1=input_bytes.get((position+1).saturating_sub(image_header.width*channels));
-                let offset2=input_bytes.get((position+1).saturating_sub(channels));
-                /*if offset1 != None&& offset2 != None &&offset1.unwrap().abs_diff(input_bytes[position+1])<
-                offset2.unwrap().abs_diff(input_bytes[position+1])
+                let offsety=input_bytes.get((position+1).saturating_sub(image_header.width*channels));
+                let offsetx=input_bytes.get((position+1).saturating_sub(channels));
+                //let offsetxy=input_bytes.get((position+1).saturating_sub((image_header.width+1)*channels));
+
+                let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(input_bytes[position+1])};
+                let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(input_bytes[position+1])};
+                //let xy_diff=if offsetxy == None {0} else {offsetxy.unwrap().abs_diff(input_bytes[position+1])};
+                /*if y_diff<=x_diff
                 {
                     offset_step=image_header.width;
+                }*/
+                /*else
+                {
+                }
+                if xy_diff.abs_diff(input_bytes[position+1])<=x_diff||
+                   xy_diff.abs_diff(input_bytes[position+1])<=y_diff
+                {
+                    offset_step=image_header.width+1;
                 }*/
 
                 //let mut prev_green_run_loop_position=position;
@@ -459,15 +502,19 @@ pub fn encode<W: io::Write>(
                     if offset_step==1
                     {
                         
-                        //add red runlength
-                        for i in 1..=green_run_length
-                        {
-                            vrun_lookup_green[(vrun_pos+i)%image_header.width]+=1;
-                        }
+                        //add green runlength
+                        green_hrun_iter=(0..green_run_length).rev();
                     }
                     else
                     {
-                        vrun_lookup_green[vrun_pos]+=green_run_length;
+                        //if offset_step==image_header.width
+                        //{
+                            green_vrun_list_iter[vrun_pos]=(0..green_run_length).rev();
+                        //}
+                        //else
+                        //{
+                        //    green_drun_list_iter[drun_pos]=(0..green_run_length).rev();
+                        //}
                     }
                     //add green runlength
                     //loop
@@ -488,18 +535,32 @@ pub fn encode<W: io::Write>(
                 }
             }
             //TODO use iterator for hrun/vrun
-            if vrun_blue_item==0
+            if is_not_blue_run_item
             {
                 let mut blue_run_length = 0;
 
                 let mut offset_step=1;
 
-                let offset1=input_bytes.get((position+2).saturating_sub(image_header.width*channels));
-                let offset2=input_bytes.get((position+2).saturating_sub(channels));
-                /*if offset1 != None&& offset2 != None &&offset1.unwrap().abs_diff(input_bytes[position+2])<
-                offset2.unwrap().abs_diff(input_bytes[position+2])
+                let offsety=input_bytes.get((position+2).saturating_sub(image_header.width*channels));
+                let offsetx=input_bytes.get((position+2).saturating_sub(channels));
+                //let offsetxy=input_bytes.get((position+2).saturating_sub((image_header.width+1)*channels));
+
+                let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(input_bytes[position+2])};
+                let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(input_bytes[position+2])};
+                //let xy_diff=if offsetxy == None {0} else {offsetxy.unwrap().abs_diff(input_bytes[position+2])};
+                /*if y_diff<=x_diff
                 {
                     offset_step=image_header.width;
+                }*/
+                /*else
+                {
+
+                }
+                //else?
+                if xy_diff.abs_diff(input_bytes[position+2])<=x_diff||
+                   xy_diff.abs_diff(input_bytes[position+2])<=y_diff
+                {
+                    offset_step=image_header.width+1;
                 }*/
 
                 let mut blue_run_loop_position=position+offset_step*channels;
@@ -510,7 +571,6 @@ pub fn encode<W: io::Write>(
                     input_bytes[blue_run_loop_position]!=input_bytes[prev_blue_run_loop_position]*/
                 {
                     blue_run_length+=1;
-                    //prev_blue_run_loop_position=blue_run_loop_position;
                     blue_run_loop_position=position+(blue_run_length+1)*offset_step*channels;
                 }
 
@@ -522,15 +582,19 @@ pub fn encode<W: io::Write>(
                     if offset_step==1
                     {
                         
-                        //add red runlength
-                        for i in 1..=blue_run_length
-                        {
-                            vrun_lookup_blue[(vrun_pos+i)%image_header.width]+=1;
-                        }
+                        //add blue runlength
+                        blue_hrun_iter=(0..blue_run_length).rev();
                     }
                     else
                     {
-                        vrun_lookup_blue[vrun_pos]+=blue_run_length;
+                        //if offset_step==image_header.width
+                        //{
+                            blue_vrun_list_iter[vrun_pos]=(0..blue_run_length).rev();
+                        //}
+                        //else
+                        //{
+                        //    blue_drun_list_iter[drun_pos]=(0..blue_run_length).rev();
+                        //}
                     }
                     //add blue runlength
                     //loop
@@ -550,22 +614,6 @@ pub fn encode<W: io::Write>(
                 }
             }
         }
-
-        
-
-
-            if vrun_red_item >0
-            {
-                vrun_lookup_red[vrun_pos]-=1;
-            }
-            if vrun_green_item >0
-            {
-                vrun_lookup_green[vrun_pos]-=1;
-            }
-            if vrun_blue_item >0
-            {
-                vrun_lookup_blue[vrun_pos]-=1;
-            }
             
         //after adding non run colors
 
@@ -656,7 +704,7 @@ pub fn decode<R: io::Read>(
     //0==PREFIX_RGB
     let mut rgb_lookup = SymbolstreamLookup::new(256);
     //1==SC_PREFIXES
-    let mut prefix_lookup = SymbolstreamLookup::new(6);
+    let mut prefix_lookup = SymbolstreamLookup::new(7);
     //2==SC_RUN_LENGTHS
     let mut runlength_lookup = SymbolstreamLookup::new(8);
     //3==SC_LUMA_BASE_DIFF
@@ -664,7 +712,7 @@ pub fn decode<R: io::Read>(
     //4==SC_LUMA_OTHER_DIFF
     let mut luma_other_diff_lookup = SymbolstreamLookup::new(16);
     //5==SC_LUMA_BACK_REF
-    let mut luma_backref_lookup = SymbolstreamLookup::new(8);
+    let mut luma_backref_lookup = SymbolstreamLookup::new(10);
     //6==SC_SMALL_DIFF
     let mut small_diff_lookup = SymbolstreamLookup::new(16);
     
@@ -676,7 +724,7 @@ pub fn decode<R: io::Read>(
     decoder.read_header_into_tree(&mut luma_backref_lookup).unwrap();
     decoder.read_header_into_tree(&mut small_diff_lookup).unwrap();
 
-    let rel_ref_lookup:[usize;8]=[channels,channels*image.width,channels*(1+image.width),2*channels,2*channels*image.width,channels*(2*image.width+1),channels*(image.width+2),channels*2*(image.width+1)];
+    let rel_ref_lookup:[usize;10]=[channels,channels*image.width,channels*(1+image.width),2*channels,2*channels*image.width,channels*(2*image.width+1),channels*(image.width+2),channels*2*(image.width+1),3*channels,3*channels*image.width];
 
     //let mut prefix_1bits=bitreader.read_bitsu8(1)?;
     //let mut prefix_2bits: u8=bitreader.read_bitsu8(1)?;
@@ -708,10 +756,16 @@ pub fn decode<R: io::Read>(
     let mut loopindex=0;
     let mut redhrun_color=0;
     let mut redhrun_iter=(0usize..0).rev();
+    let mut redvrun_colors=vec![0;image.width];
+    let mut red_vrun_list_iter=vec![(0..0).rev();image.width];
     let mut greenhrun_color=0;
     let mut greenhrun_iter=(0usize..0).rev();
+    let mut greenvrun_colors=vec![0;image.width];
+    let mut green_vrun_list_iter=vec![(0..0).rev();image.width];
     let mut bluehrun_color=0;
     let mut bluehrun_iter=(0usize..0).rev();
+    let mut bluevrun_colors=vec![0;image.width];
+    let mut blue_vrun_list_iter=vec![(0..0).rev();image.width];
     while position<image_size 
     {
     /*for y in 0..list_of_subblocks_in_heightblock.len()
@@ -722,42 +776,65 @@ pub fn decode<R: io::Read>(
             {*/
                 //y, then x
                 //position = channels*(y*image.width_block_size+x*image::SUBBLOCK_WIDTH_MAX)+list_of_subblocks_in_heightblock[y][x][i];
-                let red_run_item_result = redhrun_iter.next();
-                let green_run_item_result = greenhrun_iter.next();    
-                let blue_run_item_result = bluehrun_iter.next();    
-                /*if position<10||position>156044*3
+                let vrun_pos=(position/channels)%image.width;
+                //let drun_pos=loop_index%(image_header.width+1);
+
+                let mut is_not_red_run_item=true;
+                if redhrun_iter.next() != None
                 {
-                    dbg!(prefix1);}*/
-                if red_run_item_result == None || green_run_item_result == None ||blue_run_item_result == None
+                    output_vec[position]=redhrun_color;
+                    is_not_red_run_item=false;
+                }
+                if red_vrun_list_iter[vrun_pos].next() != None
+                {
+                    output_vec[position]=redvrun_colors[vrun_pos];
+                    is_not_red_run_item=false;
+                }
+
+                let mut is_not_green_run_item=true;
+                if greenhrun_iter.next() != None
+                {
+                    output_vec[position+1]=greenhrun_color;
+                    is_not_green_run_item=false;
+                }
+                if green_vrun_list_iter[vrun_pos].next() != None
+                {
+                    output_vec[position+1]=greenvrun_colors[vrun_pos];
+                    is_not_green_run_item=false;
+                }
+
+                let mut is_not_blue_run_item=true;
+                if bluehrun_iter.next() != None
+                {
+                    output_vec[position+2]=bluehrun_color;
+                    is_not_blue_run_item=false;
+                }
+                if blue_vrun_list_iter[vrun_pos].next() != None
+                {
+                    output_vec[position+2]=bluevrun_colors[vrun_pos];
+                    is_not_blue_run_item=false;
+                }
+
+
+
+                if is_not_red_run_item || is_not_green_run_item || is_not_blue_run_item
                 {
                     //let headertime = Instant::now();
                     match prefix1
                     {
                         PREFIX_SMALL_DIFF=>
                         {
-                            if red_run_item_result == None
+                            if is_not_red_run_item
                             {
                                 output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-8 +output_vec[prev_pos] as i16)as u8;
                             }
-                            else
-                            {
-                                output_vec[position]=redhrun_color;
-                            }
-                            if green_run_item_result == None
+                            if is_not_green_run_item
                             {
                                 output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-8 +output_vec[prev_pos+1] as i16)as u8;
                             }
-                            else
-                            {
-                                output_vec[position+1]=greenhrun_color;
-                            }
-                            if blue_run_item_result == None
+                            if is_not_blue_run_item
                             {
                                 output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-8 +output_vec[prev_pos+2] as i16)as u8;
-                            }
-                            else
-                            {
-                                output_vec[position+2]=bluehrun_color;
                             }
                         }
                         PREFIX_COLOR_LUMA=>
@@ -767,56 +844,47 @@ pub fn decode<R: io::Read>(
 
                             output_vec[position+1]=(prev_luma_base_diff + output_vec[position-backref+1] as i16) as u8;
 
-                            if green_run_item_result != None
-                            {
-                                output_vec[position+1]=greenhrun_color;
-                            }
 
-                            if red_run_item_result == None
+                            if is_not_red_run_item
                             {
                                 prev_luma_other_diff1=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position]=(prev_luma_other_diff1 + prev_luma_base_diff+(output_vec[position-backref] as i16)) as u8;
                             }
-                            else
-                            {
-                                output_vec[position]=redhrun_color;
-                            }
                             
-                            if blue_run_item_result == None
+                            if is_not_blue_run_item
                             {
                                 prev_luma_other_diff2=decoder.read_next_symbol(&luma_other_diff_lookup)? as i16-8;
                                 output_vec[position+2]=(prev_luma_other_diff2 + prev_luma_base_diff+(output_vec[position-backref+2] as i16)) as u8;
                             }
-                            else
+                        }
+                        PREFIX_BACK_REF=>
+                        {
+                            if is_not_red_run_item
                             {
-                                output_vec[position+2]=bluehrun_color;
+                                output_vec[position]=output_vec[prev_pos];
+                            }
+                            if is_not_green_run_item
+                            {
+                                output_vec[position+1]=output_vec[prev_pos+1];
+                            }
+                            if is_not_blue_run_item
+                            {
+                                output_vec[position+2]=output_vec[prev_pos+2];
                             }
                         }
                         _=>
                         {
-                            if red_run_item_result == None
+                            if is_not_red_run_item
                             {
                                 output_vec[position]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos]);
                             }
-                            else
-                            {
-                                output_vec[position]=redhrun_color;
-                            }
-                            if green_run_item_result == None
+                            if is_not_green_run_item
                             {
                                 output_vec[position+1]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+1]);
                             }
-                            else
-                            {
-                                output_vec[position+1]=greenhrun_color;
-                            }
-                            if blue_run_item_result == None
+                            if is_not_blue_run_item
                             {
                                 output_vec[position+2]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+2]);
-                            }
-                            else
-                            {
-                                output_vec[position+2]=bluehrun_color;
                             }
                         }
 
@@ -827,8 +895,11 @@ pub fn decode<R: io::Read>(
                     prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                     let mut temp_curr_runcount: u8=0;
                     let mut red_run_length=0;
-                    //dbg!(position);
-                    //dbg!(prefix1);
+
+
+
+
+
                     while prefix1 == PREFIX_RED_RUN
                     {
                         //run lengths
@@ -842,8 +913,21 @@ pub fn decode<R: io::Read>(
 
                         red_run_length += 3;
                         //dbg!(red_run_length);
-                        redhrun_color=output_vec[position];
-                        redhrun_iter=(0..red_run_length).rev();
+                        
+                        let offsety=output_vec.get(position.saturating_sub(image.width*channels));
+                        let offsetx=output_vec.get(position.saturating_sub(channels));
+                        let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(output_vec[position])};
+                        let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(output_vec[position])};
+                        if y_diff<=x_diff
+                        {
+                            red_vrun_list_iter[vrun_pos]=(0..red_run_length).rev();
+                            redvrun_colors[vrun_pos]=output_vec[position];
+                        }
+                        else
+                        {
+                            redhrun_iter=(0..red_run_length).rev();
+                            redhrun_color=output_vec[position];
+                        }
                         temp_curr_runcount=0;
                     }
 
@@ -863,9 +947,20 @@ pub fn decode<R: io::Read>(
 
                         green_run_length += 3;
                                     
-
-                        greenhrun_color=output_vec[position+1];
-                        greenhrun_iter=(0..green_run_length).rev();
+                        let offsety=output_vec.get((position+1).saturating_sub(image.width*channels));
+                        let offsetx=output_vec.get((position+1).saturating_sub(channels));
+                        let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(output_vec[position+1])};
+                        let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(output_vec[position+1])};
+                        if y_diff<=x_diff
+                        {
+                            green_vrun_list_iter[vrun_pos]=(0..green_run_length).rev();
+                            greenvrun_colors[vrun_pos]=output_vec[position+1];
+                        }
+                        else
+                        {
+                            greenhrun_iter=(0..green_run_length).rev();
+                            greenhrun_color=output_vec[position+1];
+                        }
                         temp_curr_runcount=0;
                     }
 
@@ -889,18 +984,26 @@ pub fn decode<R: io::Read>(
                         //dbg!(blue_run_length);
                                     
 
-                        bluehrun_color=output_vec[position+2];
-                        bluehrun_iter=(0..blue_run_length).rev();
+                        
+                        let offsety=output_vec.get((position+2).saturating_sub(image.width*channels));
+                        let offsetx=output_vec.get((position+2).saturating_sub(channels));
+                        
+                        let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(output_vec[position+2])};
+                        let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(output_vec[position+2])};
+                        if y_diff<=x_diff
+                        {
+                            blue_vrun_list_iter[vrun_pos]=(0..blue_run_length).rev();
+                            bluevrun_colors[vrun_pos]=output_vec[position+2];
+                        }
+                        else
+                        {
+                            bluehrun_iter=(0..blue_run_length).rev();
+                            bluehrun_color=output_vec[position+2];
+                        }
                     }
 
 
                     //dbg!(prefix1);
-                }
-                else
-                {
-                    output_vec[position]=redhrun_color;
-                    output_vec[position+1]=greenhrun_color;
-                    output_vec[position+2]=bluehrun_color;
                 }
 
                 #[cfg(debug_assertions)]

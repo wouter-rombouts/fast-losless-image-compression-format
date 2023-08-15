@@ -13,3 +13,8 @@ pub struct RunCountdown
         self.color == other.color
     }
 }
+
+pub struct Run
+{ pub color : u8,
+  pub run : Rev<Range<usize>>
+}
