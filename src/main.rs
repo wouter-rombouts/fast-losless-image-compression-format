@@ -11,6 +11,7 @@ pub mod bitwriter;
 pub mod bitreader;
 pub(crate) mod image;
 mod run;
+mod block;
 
 fn main()
 {

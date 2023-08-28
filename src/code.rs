@@ -1,5 +1,8 @@
 const NICE: &[u8] = "nice".as_bytes();
+use itertools::Itertools;
+
 use crate::bitwriter;
+use crate::block::BlockDef;
 use crate::image::{Image, self};
 use crate::run::RunCountdown;
 use std::cmp::Reverse;
@@ -16,6 +19,10 @@ pub(crate) const PREFIX_RGB: u8 = 3;
 pub(crate) const PREFIX_COLOR_LUMA: u8 = 4;
 pub(crate) const PREFIX_SMALL_DIFF: u8 = 5;
 pub(crate) const PREFIX_BACK_REF: u8 = 6;
+
+pub(crate) const PREFIX_RED_VRUN: u8 = 7;
+pub(crate) const PREFIX_GREEN_VRUN: u8 = 8;
+pub(crate) const PREFIX_BLUE_VRUN: u8 = 9;
 //pub(crate) const PREFIX_REF: u8 = 6;
 //stream codes
 pub(crate) const SC_RGB: u8 = 0;
@@ -67,7 +74,7 @@ pub fn encode<W: io::Write>(
     //0==PREFIX_RGB
     data.add_output_type(256);
     //1==SC_PREFIXES
-    data.add_output_type(7);
+    data.add_output_type(10);
     //2==SC_RUN_LENGTHS
     data.add_output_type(8);
     //3==SC_LUMA_BASE_DIFF
@@ -83,11 +90,6 @@ pub fn encode<W: io::Write>(
     let mut amount_of_refs=0;
     let mut amount_of_diffs=0;
     let mut prev_run_count=0;
-    //16 size, with 16 spares
-    //hold slice or actual values
-    let mut previous16_pixels_unique_offset = 0;
-    let mut previous16_pixels_unique : [(u8,u8,u8);64] = [(0,0,0);64];
-
     //main loop
 
     let mut rgb_cntr = 0;
@@ -101,36 +103,36 @@ pub fn encode<W: io::Write>(
     
     let mut red_hrun_iter=(0..0).rev();
     let mut red_vrun_list_iter=vec![(0..0).rev();image_header.width];
-    //let mut red_drun_list_iter=vec![(0..0).rev();image_header.width+1];
     let mut green_hrun_iter=(0..0).rev();
     let mut green_vrun_list_iter=vec![(0..0).rev();image_header.width];
-    //let mut green_drun_list_iter=vec![(0..0).rev();image_header.width+1];
     let mut blue_hrun_iter=(0..0).rev();
     let mut blue_vrun_list_iter=vec![(0..0).rev();image_header.width];
-    //let mut blue_drun_list_iter=vec![(0..0).rev();image_header.width+1];
-    //let mut redrun=(0usize..4000).rev().map(|x| redrunstart+redrunstep * x*channels);
 
-    //TODO create list like vertical run, but with mod width+1 instead of width for diagonal run
-    //hrun breaks all other runs
-    //vrun breaks drun
-    //drun breaks vrun
-    
-    //TODO add symbols as normal, but also add the symbols for other streams
-    // calculate aob for each stream at the end, based on preferred stream(same value as before)
-    //reassign pixel to different preferred stream if smaller aob is found
-    //repeat until satisfied with result
-    //add result to output stream
-
+    let mut same_color_diff_count=0;
+    //2 ways of doing: do subblock order, or normal order with blocks mod64
+    //first Option to check if it already exists
+    //None means it is not a block,  otherwise the block offset is stored
+    //diff in block is diff to previous pixel or block base offset
+    //image width divided rounded up as vector size
+    let mut blocks : Vec<Option<BlockDef>> = vec![None;image_header.width / 8 + usize::from(image_header.width % 8 != 0)];
 
     for loop_index in 0..image_size/channels
     {
-        //TODO cache for calc_pos_from function when values are generated from run lookups
-        //TODO move to end, only when run for color was not recetnly added
-        //let is_not_in_run=run_count_red ==1 ||run_count_green==1||run_count_blue==1;
         let prev_position = position;
         position=loop_index*channels;
         let vrun_pos=loop_index%image_header.width;
-        //let drun_pos=loop_index%(image_header.width+1);
+
+        let pos_in_blocks=(loop_index%image_header.width)/8;
+        //TODO for r,g,b
+        //3offsets for each color, only match when 3 colors have possible block. Alt: when using other algo's apply block instead of algo when applicable.
+        //TODO clear block info when done with block, or when new.
+        //calc begin block
+        if loop_index%(image_header.width*8)==0
+        {
+            blocks=vec![None;image_header.width / 8 + usize::from(image_header.width % 8 != 0)];
+        }
+
+        
         let testb=blue_vrun_list_iter[vrun_pos].next();
         let testr=red_vrun_list_iter[vrun_pos].next();
         let testg=green_vrun_list_iter[vrun_pos].next();
@@ -170,9 +172,133 @@ pub fn encode<W: io::Write>(
             for i in 0..16
             {
             }*/
+            let has_block= if blocks[pos_in_blocks]==None
+            {
+                //let begin=input_bytes[position];
+                let mut lowest_value=input_bytes[position];
+                let mut highest_value=input_bytes[position];
+                let mut newblock = BlockDef{ red_block: None, green_block: None, blue_block: None };
+
+                //TODO loop starting from begin block, not from first non run pixel.
+                //loop all colors
+                for x in 0..8
+                {
+                    for y in 0..8
+                    {
+                        let newcolor=input_bytes[position+channels*(x+image_header.width*y)];
+                        lowest_value=newcolor.min(lowest_value);
+                        highest_value=newcolor.max(highest_value);
+                    }
+                }
+                //create block definition
+                if highest_value-lowest_value<16
+                {
+                    newblock.red_block=Some(lowest_value);
+                    
+                }
+                else
+                {
+                    newblock.red_block= None;
+                }
+                lowest_value=input_bytes[position+1];
+                highest_value=input_bytes[position+1];
+                for x in 0..8
+                {
+                    for y in 0..8
+                    {
+                        let newcolor=input_bytes[position+1+channels*(x+image_header.width*y)];
+                        lowest_value=newcolor.min(lowest_value);
+                        highest_value=newcolor.max(highest_value);
+                    }
+                }
+                /*if position>0{
+                    dbg!(lowest_value);
+                    dbg!(highest_value);
+                }*/
+                //create block definition
+                if highest_value-lowest_value<16
+                {
+                    newblock.green_block=Some(lowest_value);
+                    
+                }
+                else
+                {
+                    newblock.green_block= None;
+                }
+
+                lowest_value=input_bytes[position+2];
+                highest_value=input_bytes[position+2];
+
+                for x in 0..8
+                {
+                    for y in 0..8
+                    {
+                        let newcolor=input_bytes[position+2+channels*(x+image_header.width*y)];
+                        lowest_value=newcolor.min(lowest_value);
+                        highest_value=newcolor.max(highest_value);
+                    }
+                }
+                //create block definition
+                if highest_value-lowest_value<16
+                {
+                    newblock.blue_block=Some(lowest_value);
+                    
+                }
+                else
+                {
+                    newblock.blue_block= None;
+                }
+                /*if position>0{
+                    dbg!(newblock.red_block !=None && newblock.green_block !=None && newblock.blue_block !=None);
+                    dbg!(pos_in_blocks);
+                    dbg!(newblock.green_block.unwrap());
+                }*/
+                if newblock.red_block !=None && newblock.green_block !=None && newblock.blue_block !=None
+                {
+                    blocks[pos_in_blocks]= Some(newblock);
+                    //TODO add block to output
+                    true
+                }
+                else
+                {
+                    false
+                }
+            }
+            else
+            {
+                    true
+            };
+            //let block_red_offset=blocks[pos_in_blocks].unwrap()
+            //TODO how get all 3 colors, or get 3 color offsets immediate?
+        
+            if has_block//let Some(base_offset)=(blocks[pos_in_blocks].unwrap().red_block)
+            {
+                if let Some(block_el)=&blocks[pos_in_blocks]
+                {
+                    let red_offset=block_el.red_block.unwrap();
+                    let green_offset=block_el.green_block.unwrap();
+                    let blue_offset=block_el.blue_block.unwrap();
+                    //block algo logic here
+                    //can we go even smaller diff?
+                    //as diff is always small compared to block this compares to block instead of previous pixel
+                    data.add_symbolu8(PREFIX_SMALL_DIFF, SC_PREFIXES);
+                    //is this the same for all colors?
+                    data.add_symbolu8(input_bytes[position]-red_offset, SC_SMALL_DIFF);
+                    if input_bytes[position+2]<blue_offset
+                    {
+                        dbg!(position);
+                        dbg!(input_bytes[position+2]);
+                        dbg!(green_offset);
+                        dbg!(pos_in_blocks);
+                    }
+                    
+                    data.add_symbolu8(input_bytes[position+1]-green_offset, SC_SMALL_DIFF);
+                    data.add_symbolu8(input_bytes[position+2]-blue_offset, SC_SMALL_DIFF);
+                }
+            }
+            else
             {
                 let mut list_of_color_diffs=[0;3];
-                //TODO try back,up,down,forward to calc diff
                 //green_diff
                 list_of_color_diffs[1]=input_bytes[position+1] as i16-input_bytes[prev_position+1] as i16;
                 //red_diff
@@ -193,7 +319,8 @@ pub fn encode<W: io::Write>(
                         data.add_symbolu8(PREFIX_BACK_REF, SC_PREFIXES);
                     }
                     else
-                    {
+                    {                    if list_of_color_diffs.iter().all_equal()
+                        {same_color_diff_count+=1;}
                         data.add_symbolu8(PREFIX_SMALL_DIFF, SC_PREFIXES);
                         if is_not_red_run_item
                         {                    
@@ -215,51 +342,8 @@ pub fn encode<W: io::Write>(
                 }
                 else
                 {
-                    //let mut top_found=false;
-                    /*for i in 0..top_pixels.len()
-                    {
-                        if input_bytes[position]==top_pixels[i][0]&&input_bytes[position+1]==top_pixels[i][1]&&input_bytes[position+2]==top_pixels[i][2]
-                        {
-                            /*sdbg!(i);
-                            dbg!(top_pixels[i][0]);
-                            dbg!(top_pixels[i][1]);
-                            dbg!(top_pixels[i][2]);*/
-                            data.add_symbolu8(PREFIX_MOST_COMMON, SC_PREFIXES);
 
-                            data.add_symbolusize(i, SC_MOST_COMMON);
-                            top_found=true;
 
-                            break;
-                        }
-                    }*/
-
-                    /*if !top_found
-                    {*/
-                    
-                    //TODO move to start to generate offsets
-                    /*let ymoveup_begin=2;
-                    let mut ymoveup=2;
-                    let ypos=position/(image_header.width*channels);
-                    if ypos/ymoveup_begin<1
-                    {
-                        ymoveup-=ymoveup_begin-ypos;
-                    }
-                    /*if image_header.height - ypos<= ymoveup_begin
-                    {
-                        ymoveup+=ymoveup_begin+1 + ypos-image_header.height;
-                    }*/
-                    let xmoveback_begin=2;
-                    let mut xmoveback=2;
-                    let xpos=(position%(image_header.width*channels))/channels;
-                    if xpos < xmoveback_begin
-                    {
-                        xmoveback-=xmoveback_begin-xpos;
-                    }
-                    /*if xpos>=image_header.width-xmoveback_begin
-                    {
-                        xmoveback+=xmoveback_begin+1+xpos-image_header.width
-                    }*/
-                    let begin_offset:usize=position-ymoveup*image_header.width*channels-xmoveback*channels;*/
                     let mut list_of_color_diffs=[0;3];
                     let mut is_luma=false;
                     for i in 0..=9
@@ -267,18 +351,6 @@ pub fn encode<W: io::Write>(
                         
                         if let Some(ref_pos)=position.checked_sub(rel_ref_lookup[i])
                         {
-
-                            /*if offset != position&&input_bytes[position]==input_bytes[(offset )as usize]&&
-                            input_bytes[position+1]==input_bytes[(offset+1)as usize]&&
-                            input_bytes[position+2]==input_bytes[(offset+2)as usize]
-                            {
-                                data.add_symbolu8(PREFIX_REF, SC_PREFIXES);
-        
-                                data.add_symbolusize((y*3+x)-if offset>position{1}else{0}/*-(y*7+x)/25*/, SC_REF);
-                                ref_found=true;
-                                amount_of_refs+=1;
-                                break 'outer;
-                            }*/
                         
                             //green_diff
                             list_of_color_diffs[1]=input_bytes[position+1] as i16-input_bytes[ref_pos+1] as i16;
@@ -292,16 +364,6 @@ pub fn encode<W: io::Write>(
                             //TODO create luminosity field run, for rgb?
                             //when rgb or diff, calc lumo level, if not in +-8, go to other color layer(,write to output)
 
-                            //TODO: wrap around 256/0 logic
-                            //TODO check 4 backreference
-                            //new algo: most used token in stream repeated
-                            /*if (run_count_green==1&&prev_luma_base_diff==list_of_color_diffs[1]||run_count_green > 1)&&
-                            (run_count_red==1&&prev_luma_other_diff1==list_of_color_diffs[0]||run_count_red > 1)&&
-                            (run_count_blue==1&&prev_luma_other_diff2==list_of_color_diffs[2]||run_count_blue > 1)
-                            {
-                                data.add_symbolu8(PREFIX_PREV_INPUT, SC_PREFIXES);
-                            }
-                            else*/
                             //TODO special case when base high then other only low diff. must be branchless.
                             //TODO re Add flexible base
                             //TODO repeat until no RGB needed?use of repeat token needed
@@ -330,10 +392,6 @@ pub fn encode<W: io::Write>(
                                 is_luma=true;
                                 break;
                             }
-                            //TODO after loop is done
-                            /*else
-                            {
-                            }*/
                         
                         }
                         else
@@ -341,7 +399,6 @@ pub fn encode<W: io::Write>(
                             continue;
                         }
                     }
-                    //TODO update  previous16_pixels_unique when match is found
                     //write rgb
                     if is_luma==false
                     {
@@ -362,8 +419,6 @@ pub fn encode<W: io::Write>(
                             data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
                         }
-                        previous16_pixels_unique[previous16_pixels_unique_offset]=(input_bytes[position],input_bytes[position + 1],input_bytes[position + 2]);
-                        previous16_pixels_unique_offset=(previous16_pixels_unique_offset+1)%8;
                     }/*
                     }*/
                 }
@@ -381,23 +436,6 @@ pub fn encode<W: io::Write>(
                 //split to see if exists
                 //TODO handle edge cases
 
-                let offsety=input_bytes.get(position.saturating_sub(image_header.width*channels));
-                let offsetx=input_bytes.get(position.saturating_sub(channels));
-                //TODO diagonal run?2 new directions for run, how to pick right one?
-                //after direction pick, determine which colors to run with.
-                //rgbrun by default, exception to be color run only
-
-                //dynamic run: color runs can be 0. main loop will have only red run as it is mandatory.
-                //after first red run part, when 3 zero's in run length part are encountered, the run must stop
-                //some numbers have 000 in their binary presentation, and must be excluded
-                //can also repeat run for the entire run, 0 each time when already 0
-                //this deletes colorrun prefixes, while allowing for partial color runs
-
-                //let offsetxy=input_bytes.get(position.saturating_sub((image_header.width+1)*channels));
-
-                let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(input_bytes[position])};
-                let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(input_bytes[position])};
-                //let xy_diff=if offsetxy == None {0} else {offsetxy.unwrap().abs_diff(input_bytes[position])};
 
                 /*if y_diff<=x_diff
                 {
@@ -415,6 +453,22 @@ pub fn encode<W: io::Write>(
                     red_run_loop_position=position+(red_run_length+1)*offset_step*channels;
                 }
 
+                if red_run_length <= 2
+                {
+                    offset_step=image_header.width;
+                    red_run_length = 0;   
+                    red_run_loop_position=position+offset_step*channels;
+                
+                    while red_run_loop_position<image_size&&
+                        input_bytes[red_run_loop_position]==input_bytes[position]/*&&
+                        input_bytes[red_run_loop_position+1]!=input_bytes[prev_red_run_loop_position+1]&&
+                        input_bytes[red_run_loop_position+2]!=input_bytes[prev_red_run_loop_position+2]*/
+                    {
+                        red_run_length+=1;
+                        //prev_red_run_loop_position=red_run_loop_position;
+                        red_run_loop_position=position+(red_run_length+1)*offset_step*channels;
+                    }
+                }
                 if red_run_length > 2
                 {
                     //TODO closure?
@@ -427,24 +481,33 @@ pub fn encode<W: io::Write>(
                     }
                     else
                     {
-                        //if offset_step==image_header.width
-                        //{
                             red_vrun_list_iter[vrun_pos]=(0..red_run_length).rev();
-                        //}
-                        //else
-                        //{
-                        //    red_drun_list_iter[drun_pos]=(0..red_run_length).rev();
-                        //}
                     }
 
                     //run_count_red+=red_run_length;
                     red_pixel_run_amount+=red_run_length;
                     red_run_length = red_run_length - 3;
                     run_cntr+=1;
+                    //TODO: run based on jump within 3x3 grid, can be previous pixel, preference for most common jump pattern
+                    //TODO same color diff
+                    //run after second pixel of run?
+                    //BLOCK: 8x8?
+                    //range 200-215,100-115,0-15(not encoded when block size is fixed)
+                    //range length fixed or n amount of bits
+                    //offset 8 bits, unless large range
+                    //at begin of block(how to detect if begin can be in run?): not-a-prefix with block or non-block
+                    //1 block rgb or 3 r,g,b blocks?
+                    //algo's in block: remove unneeded algo's? make diff and rgb smaller to match block range.HFE needed here?
                     loop
                     {
-                        
-                        data.add_symbolu8(PREFIX_RED_RUN, SC_PREFIXES);
+                        if offset_step==1 
+                        {
+                            data.add_symbolu8(PREFIX_RED_RUN, SC_PREFIXES);
+                        }
+                        else
+                        {
+                            data.add_symbolu8(PREFIX_RED_VRUN, SC_PREFIXES);
+                        }
                         data.add_symbolu8((red_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                         run_occurrences[(red_run_length & 0b0000_0111)]+=1;
                         if red_run_length <8
@@ -463,25 +526,6 @@ pub fn encode<W: io::Write>(
 
                 let mut offset_step=1;
 
-                let offsety=input_bytes.get((position+1).saturating_sub(image_header.width*channels));
-                let offsetx=input_bytes.get((position+1).saturating_sub(channels));
-                //let offsetxy=input_bytes.get((position+1).saturating_sub((image_header.width+1)*channels));
-
-                let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(input_bytes[position+1])};
-                let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(input_bytes[position+1])};
-                //let xy_diff=if offsetxy == None {0} else {offsetxy.unwrap().abs_diff(input_bytes[position+1])};
-                /*if y_diff<=x_diff
-                {
-                    offset_step=image_header.width;
-                }*/
-                /*else
-                {
-                }
-                if xy_diff.abs_diff(input_bytes[position+1])<=x_diff||
-                   xy_diff.abs_diff(input_bytes[position+1])<=y_diff
-                {
-                    offset_step=image_header.width+1;
-                }*/
 
                 //let mut prev_green_run_loop_position=position;
                 let mut green_run_loop_position=position+offset_step*channels;
@@ -495,6 +539,22 @@ pub fn encode<W: io::Write>(
                     //prev_green_run_loop_position=green_run_loop_position;
                     green_run_loop_position=position+(green_run_length+1)*offset_step*channels;
                 }
+                if green_run_length <= 2
+                {
+                    offset_step=image_header.width;
+                    green_run_length = 0;   
+                    green_run_loop_position=position+offset_step*channels;
+                
+                    while green_run_loop_position<image_size&&
+                    input_bytes[green_run_loop_position+1]==input_bytes[position+1]/*&&
+                    input_bytes[green_run_loop_position]!=input_bytes[prev_green_run_loop_position]&&
+                    input_bytes[green_run_loop_position+2]!=input_bytes[prev_green_run_loop_position+2]*/
+                    {
+                        green_run_length+=1;
+                        //prev_green_run_loop_position=green_run_loop_position;
+                        green_run_loop_position=position+(green_run_length+1)*offset_step*channels;
+                    }
+                }
 
                 if green_run_length > 2
                 {
@@ -507,14 +567,7 @@ pub fn encode<W: io::Write>(
                     }
                     else
                     {
-                        //if offset_step==image_header.width
-                        //{
                             green_vrun_list_iter[vrun_pos]=(0..green_run_length).rev();
-                        //}
-                        //else
-                        //{
-                        //    green_drun_list_iter[drun_pos]=(0..green_run_length).rev();
-                        //}
                     }
                     //add green runlength
                     //loop
@@ -523,7 +576,14 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        data.add_symbolu8(PREFIX_GREEN_RUN, SC_PREFIXES);
+                        if offset_step==1 
+                        {
+                            data.add_symbolu8(PREFIX_GREEN_RUN, SC_PREFIXES);
+                        }
+                        else
+                        {
+                            data.add_symbolu8(PREFIX_GREEN_VRUN, SC_PREFIXES);
+                        }
                         data.add_symbolu8((green_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                         run_occurrences[(green_run_length & 0b0000_0111)]+=1;
                         if green_run_length <8
@@ -541,27 +601,6 @@ pub fn encode<W: io::Write>(
 
                 let mut offset_step=1;
 
-                let offsety=input_bytes.get((position+2).saturating_sub(image_header.width*channels));
-                let offsetx=input_bytes.get((position+2).saturating_sub(channels));
-                //let offsetxy=input_bytes.get((position+2).saturating_sub((image_header.width+1)*channels));
-
-                let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(input_bytes[position+2])};
-                let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(input_bytes[position+2])};
-                //let xy_diff=if offsetxy == None {0} else {offsetxy.unwrap().abs_diff(input_bytes[position+2])};
-                /*if y_diff<=x_diff
-                {
-                    offset_step=image_header.width;
-                }*/
-                /*else
-                {
-
-                }
-                //else?
-                if xy_diff.abs_diff(input_bytes[position+2])<=x_diff||
-                   xy_diff.abs_diff(input_bytes[position+2])<=y_diff
-                {
-                    offset_step=image_header.width+1;
-                }*/
 
                 let mut blue_run_loop_position=position+offset_step*channels;
                 
@@ -573,7 +612,21 @@ pub fn encode<W: io::Write>(
                     blue_run_length+=1;
                     blue_run_loop_position=position+(blue_run_length+1)*offset_step*channels;
                 }
-
+                if blue_run_length <= 2
+                {
+                    offset_step=image_header.width;
+                    blue_run_length = 0;   
+                    blue_run_loop_position=position+offset_step*channels;
+                
+                    while blue_run_loop_position<image_size&&
+                    input_bytes[blue_run_loop_position+2]==input_bytes[position+2]/*&&
+                    input_bytes[blue_run_loop_position+1]!=input_bytes[prev_blue_run_loop_position+1]&&
+                    input_bytes[blue_run_loop_position]!=input_bytes[prev_blue_run_loop_position]*/
+                    {
+                        blue_run_length+=1;
+                        blue_run_loop_position=position+(blue_run_length+1)*offset_step*channels;
+                    }
+                }
                 if blue_run_length > 2
                 {
 
@@ -587,14 +640,7 @@ pub fn encode<W: io::Write>(
                     }
                     else
                     {
-                        //if offset_step==image_header.width
-                        //{
                             blue_vrun_list_iter[vrun_pos]=(0..blue_run_length).rev();
-                        //}
-                        //else
-                        //{
-                        //    blue_drun_list_iter[drun_pos]=(0..blue_run_length).rev();
-                        //}
                     }
                     //add blue runlength
                     //loop
@@ -602,7 +648,14 @@ pub fn encode<W: io::Write>(
                     run_cntr+=1;
                     loop
                     {
-                        data.add_symbolu8(PREFIX_BLUE_RUN, SC_PREFIXES);
+                        if offset_step==1 
+                        {
+                            data.add_symbolu8(PREFIX_BLUE_RUN, SC_PREFIXES);
+                        }
+                        else
+                        {
+                            data.add_symbolu8(PREFIX_BLUE_VRUN, SC_PREFIXES);
+                        }
                         data.add_symbolu8((blue_run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
                         run_occurrences[(blue_run_length & 0b0000_0111)]+=1;
                         if blue_run_length <8
@@ -646,6 +699,7 @@ pub fn encode<W: io::Write>(
     dbg!(run_occurrences);
     dbg!(amount_of_refs);
     dbg!(amount_of_diffs);
+    dbg!(same_color_diff_count);
     
      //not used, but to make the dceoder dosen't crash at the end
      //output_writer.write_all(&[255])?;
@@ -916,8 +970,8 @@ pub fn decode<R: io::Read>(
                         
                         let offsety=output_vec.get(position.saturating_sub(image.width*channels));
                         let offsetx=output_vec.get(position.saturating_sub(channels));
-                        let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(output_vec[position])};
-                        let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(output_vec[position])};
+                        let y_diff=offsety.unwrap().abs_diff(output_vec[position]);
+                        let x_diff=offsetx.unwrap().abs_diff(output_vec[position]);
                         if y_diff<=x_diff
                         {
                             red_vrun_list_iter[vrun_pos]=(0..red_run_length).rev();
@@ -949,8 +1003,8 @@ pub fn decode<R: io::Read>(
                                     
                         let offsety=output_vec.get((position+1).saturating_sub(image.width*channels));
                         let offsetx=output_vec.get((position+1).saturating_sub(channels));
-                        let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(output_vec[position+1])};
-                        let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(output_vec[position+1])};
+                        let y_diff=offsety.unwrap().abs_diff(output_vec[position+1]);
+                        let x_diff=offsetx.unwrap().abs_diff(output_vec[position+1]);
                         if y_diff<=x_diff
                         {
                             green_vrun_list_iter[vrun_pos]=(0..green_run_length).rev();
@@ -988,8 +1042,8 @@ pub fn decode<R: io::Read>(
                         let offsety=output_vec.get((position+2).saturating_sub(image.width*channels));
                         let offsetx=output_vec.get((position+2).saturating_sub(channels));
                         
-                        let y_diff=if offsety == None {0} else {offsety.unwrap().abs_diff(output_vec[position+2])};
-                        let x_diff=if offsetx == None {0} else {offsetx.unwrap().abs_diff(output_vec[position+2])};
+                        let y_diff=offsety.unwrap().abs_diff(output_vec[position+2]);
+                        let x_diff=offsetx.unwrap().abs_diff(output_vec[position+2]);
                         if y_diff<=x_diff
                         {
                             blue_vrun_list_iter[vrun_pos]=(0..blue_run_length).rev();
