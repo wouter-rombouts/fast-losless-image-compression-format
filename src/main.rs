@@ -10,8 +10,9 @@ pub mod hfe;
 pub mod bitwriter;
 pub mod bitreader;
 pub(crate) mod image;
-mod run;
+mod state;
 mod block;
+pub mod pixel;
 
 fn main()
 {
