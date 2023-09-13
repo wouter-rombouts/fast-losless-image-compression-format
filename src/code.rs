@@ -302,8 +302,7 @@ pub fn encode<W: io::Write>(
                 {
                     //TODO add to BLOCK DIFF
 
-                    {                    if list_of_color_diffs.iter().all_equal()
-                        {same_color_diff_count+=1;}
+                    {
                         data.add_symbolu8(PREFIX_SMALL_DIFF, SC_PREFIXES);
                         //if 
                         if is_not_red_run_item
@@ -396,16 +395,34 @@ pub fn encode<W: io::Write>(
                         rgb_cntr+=1;
                         if is_not_red_run_item
                         {
-                            data.add_symbolu8(input_bytes[position].wrapping_sub(if position>0{input_bytes[prev_position]}else{0}), SC_RGB);
+                            let mut red_code=input_bytes[position].wrapping_sub(if position>0{input_bytes[prev_position]}else{0});
+                            if position>=channels*image_header.width
+                            {
+                                red_code=((input_bytes[position] as i16).wrapping_sub((input_bytes[position-channels*image_header.width] as i16+input_bytes[prev_position] as i16)/2)) as u8;
+                            }
+                            data.add_symbolu8(red_code, SC_RGB);
                         }        
                         if is_not_green_run_item
                         {
-                            data.add_symbolu8(input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0}), SC_RGB);
+                            
+                            let mut green_code=input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0});
+                            if position>=channels*image_header.width
+                            {
+                                green_code=((input_bytes[position+1] as i16).wrapping_sub((input_bytes[position+1-channels*image_header.width] as i16+input_bytes[prev_position+1] as i16)/2)) as u8;
+                            }
+                            data.add_symbolu8(green_code, SC_RGB);
+                            //data.add_symbolu8(input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0}), SC_RGB);
 
                         }
                         if is_not_blue_run_item
                         {
-                            data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
+                            let mut blue_code=input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0});
+                            if position>=channels*image_header.width
+                            {
+                                blue_code=((input_bytes[position+2] as i16).wrapping_sub((input_bytes[position+2-channels*image_header.width] as i16+input_bytes[prev_position+2] as i16)/2)) as u8;
+                            }
+                            data.add_symbolu8(blue_code, SC_RGB);
+                            //data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
                         }
                     }/*
@@ -902,9 +919,10 @@ pub fn decode<R: io::Read>(
                         }*/
                         PREFIX_RGB=>
                         {
-                                output_vec[position]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos]);                            
-                                output_vec[position+1]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+1]);
-                                output_vec[position+2]=decoder.read_next_symbol(&rgb_lookup)?.wrapping_add(output_vec[prev_pos+2]);
+                                output_vec[position]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[if position>=channels*image.width{position-channels*image.width}else{prev_pos}] as i16+output_vec[prev_pos] as i16)/2)) as u8;
+                                output_vec[position+1]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[if position>=channels*image.width{position-channels*image.width}else{prev_pos}+1] as i16+output_vec[prev_pos+1] as i16)/2)) as u8;
+                                output_vec[position+2]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[if position>=channels*image.width{position-channels*image.width}else{prev_pos}+2] as i16+output_vec[prev_pos+2] as i16)/2)) as u8;
+
 
                             #[cfg(debug_assertions)]
                             {
