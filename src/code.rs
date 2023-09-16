@@ -87,7 +87,7 @@ pub fn encode<W: io::Write>(
     //4==SC_LUMA_OTHER_DIFF
     data.add_output_type(32);
     //5==SC_LUMA_BACK_REF
-    data.add_output_type(13);
+    data.add_output_type(11);
     //6==SC_SMALL_DIFF
     data.add_output_type(7);
     
@@ -208,8 +208,9 @@ pub fn encode<W: io::Write>(
     let mut same_prefix_counter=0;
     let mut same_prefix_cnt_pos=0;
     //TODO position;flipped position, similar to small diff and rgb
-    let rel_ref_lookup:[usize;13]=[channels,channels*image_header.width,channels*(1+image_header.width),2*channels,2*channels*image_header.width,channels*(2*image_header.width+1),channels*(image_header.width+2),channels*2*(image_header.width+1),3*channels,3*channels*image_header.width,
-     channels*(image_header.width-1),channels*(image_header.width-2),channels*(2*image_header.width-1)];
+
+    let rel_ref_lookup:[usize;11]=[channels,channels*image_header.width,channels*(1+image_header.width),channels*(image_header.width-1),channels*(image_header.width-2),2*channels,
+    channels*(2*image_header.width-1),2*channels*image_header.width,channels*(2*image_header.width+1),channels*(image_header.width+2),channels*2*(image_header.width+1)];
     
     let mut color_states = vec![false/*ColorState::Initial*/;image_size];
 
@@ -410,7 +411,7 @@ pub fn encode<W: io::Write>(
                     if is_luma2==false
                     {
                         let mut is_luma=false;
-                        for i in 0..=12
+                        for i in 0..=10
                         {
                             
                             if let Some(ref_pos)=position.checked_sub(rel_ref_lookup[i])
@@ -772,7 +773,7 @@ pub fn decode<R: io::Read>(
     //4==SC_LUMA_OTHER_DIFF
     let mut luma_other_diff_lookup = SymbolstreamLookup::new(32);
     //5==SC_LUMA_BACK_REF
-    let mut luma_backref_lookup = SymbolstreamLookup::new(13);
+    let mut luma_backref_lookup = SymbolstreamLookup::new(11);
     //6==SC_SMALL_DIFF
     let mut small_diff_lookup = SymbolstreamLookup::new(7);
     //7==SC_LUMA_BASE_DIFF2
@@ -791,8 +792,8 @@ pub fn decode<R: io::Read>(
     decoder.read_header_into_tree(&mut luma_other_diff2_lookup).unwrap();
     //decoder.read_header_into_tree(&mut adj_block_lookup).unwrap();
 
-    let rel_ref_lookup:[usize;13]=[channels,channels*image.width,channels*(1+image.width),2*channels,2*channels*image.width,channels*(2*image.width+1),channels*(image.width+2),channels*2*(image.width+1),3*channels,3*channels*image.width,
-     channels*(image.width-1),channels*(image.width-2),channels*(2*image.width-1)];
+    let rel_ref_lookup:[usize;11]=[channels,channels*image.width,channels*(1+image.width),channels*(image.width-1),channels*(image.width-2),2*channels,channels*(2*image.width-1),2*channels*image.width,channels*(2*image.width+1),channels*(image.width+2),channels*2*(image.width+1)
+     ];
     let mut prefix1=decoder.read_next_symbol(&prefix_lookup)?;
 
     
