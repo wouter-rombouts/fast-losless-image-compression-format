@@ -14,12 +14,10 @@ use crate::hfe::{EncodedOutput, self, SymbolstreamLookup};
 use crate::{bitreader::Bitreader, bitwriter::Bitwriter};
 //pub(crate) const PREFIX_RUN: u8 = 2;
 
+pub(crate) const PREFIX_RUN: u8 = 0;
 pub(crate) const PREFIX_RGB: u8 = 1;
 pub(crate) const PREFIX_COLOR_LUMA: u8 = 2;
 pub(crate) const PREFIX_SMALL_DIFF: u8 = 3;
-//pub(crate) const PREFIX_RUN_HORSE: u8 = 1;
-//pub(crate) const PREFIX_RUN_HORSE2: u8 = 2;
-pub(crate) const PREFIX_RUN: u8 = 0;
 pub(crate) const PREFIX_COLOR_LUMA2: u8 = 4;
 //pub(crate) const PREFIX_PREDICT: u8 = 5;
 //pub(crate) const PREFIX_REF: u8 = 6;
@@ -34,7 +32,7 @@ pub(crate) const SC_SMALL_DIFF: u8 = 6;
 //pub(crate) const SC_BLOCK_DIFF: u8 = 7;
 pub(crate) const SC_LUMA_BASE_DIFF2: u8 = 7;
 pub(crate) const SC_LUMA_OTHER_DIFF2: u8 = 8;
-pub(crate) const SC_LUMA_BACK_REF2: u8 = 9;
+//pub(crate) const SC_LUMA_BACK_REF2: u8 = 9;
 
 
 pub(crate) const BLOCK_SIZE: usize = 4;
@@ -98,7 +96,7 @@ pub fn encode<W: io::Write>(
     //8==SC_LUMA_OTHER_DIFF2
     data.add_output_type(32);
     //9==SC_LUMA_BACK_REF2
-    data.add_output_type(2);
+    //data.add_output_type(2);
 
     //7==SC_PREFIX_COUNT
     //data.add_output_type(4);
@@ -360,20 +358,20 @@ pub fn encode<W: io::Write>(
                     let mut list_of_color_diffs=[0;3];
 
                     let mut is_luma2=false;
-                    for i in 0..=0
+                    for i in 0..1
                     {
                         
-                        if let Some(ref_pos)=position.checked_sub(rel_ref_lookup[i])
+                        if let Some(ref_pos)=position.checked_sub(channels*image_header.width)
                         {
                         
                             //green_diff
-                            list_of_color_diffs[1]=input_bytes[position+1].wrapping_sub(input_bytes[ref_pos+1]);
+                            list_of_color_diffs[1]=input_bytes[position+1].wrapping_sub(((input_bytes[ref_pos+1] as u16 + input_bytes[prev_position+1] as u16) /2) as u8);
                             
                         
                             //red_diff
-                            list_of_color_diffs[0]=input_bytes[position].wrapping_sub(input_bytes[ref_pos]);
+                            list_of_color_diffs[0]=input_bytes[position].wrapping_sub(((input_bytes[ref_pos] as u16 + input_bytes[prev_position] as u16) /2) as u8);
                             //blue_diff
-                            list_of_color_diffs[2]=input_bytes[position+2].wrapping_sub(input_bytes[ref_pos+2]);
+                            list_of_color_diffs[2]=input_bytes[position+2].wrapping_sub(((input_bytes[ref_pos+2] as u16 + input_bytes[prev_position+2] as u16) /2) as u8);
                             list_of_color_diffs[0]=list_of_color_diffs[0].wrapping_sub(list_of_color_diffs[1]);
                             list_of_color_diffs[2]=list_of_color_diffs[2].wrapping_sub(list_of_color_diffs[1]);
 
@@ -484,7 +482,6 @@ pub fn encode<W: io::Write>(
                                     green_code=((input_bytes[position+1] as i16).wrapping_sub((input_bytes[position+1-channels*image_header.width] as i16+input_bytes[prev_position+1] as i16)/2)) as u8;
                                 }
                                 data.add_symbolu8(green_code, SC_RGB);
-                                //data.add_symbolu8(input_bytes[position+1].wrapping_sub(if position>0{input_bytes[prev_position+1]}else{0}), SC_RGB);
 
                             }
                             if is_not_blue_run_item
@@ -495,7 +492,6 @@ pub fn encode<W: io::Write>(
                                     blue_code=((input_bytes[position+2] as i16).wrapping_sub((input_bytes[position+2-channels*image_header.width] as i16+input_bytes[prev_position+2] as i16)/2)) as u8;
                                 }
                                 data.add_symbolu8(blue_code, SC_RGB);
-                                //data.add_symbolu8(input_bytes[position+2].wrapping_sub(if position>0{input_bytes[prev_position+2]}else{0}), SC_RGB);
 
                             }
                         }
@@ -559,99 +555,7 @@ pub fn encode<W: io::Write>(
                         
                     }
                 }
-                //test if horse worth when minimum >2
-                //TODO identify patterns for block maps
-                //+* operator,log,sqrt,?
-                //change block size
-                /*if run_length ==0
-                {
-                offset_step=3+image_header.width;
-                //split to see if exists
-                //TODO handle edge cases
-
-                horse_run_loop_position=position+offset_step*channels;
                 
-                while horse_run_loop_position<image_size&&
-                    input_bytes[horse_run_loop_position]==input_bytes[position]&&!color_states[horse_run_loop_position]&&
-                    input_bytes[horse_run_loop_position+1]==input_bytes[position+1]&&!color_states[horse_run_loop_position+1]&&
-                    input_bytes[horse_run_loop_position+2]==input_bytes[position+2]&&!color_states[horse_run_loop_position+2]
-                {
-                    run_length+=1;
-                    color_states[horse_run_loop_position]=true;
-                    color_states[horse_run_loop_position+1]=true;
-                    color_states[horse_run_loop_position+2]=true;
-                    horse_run_loop_position+=offset_step*channels;
-                }
-                if run_length > 0
-                {
-
-                    //run_count_red+=red_run_length;
-                    red_pixel_run_amount+=run_length;
-                    run_length = run_length - 1;
-                    run_cntr+=1;
-                    loop
-                    {
-                        /*if position<=468360
-                        {
-                            dbg!(position);
-                            dbg!(PREFIX_RUN_HORSE);
-                        }*/
-                        data.add_symbolu8(PREFIX_RUN_HORSE, SC_PREFIXES);
-                        data.add_symbolu8((run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
-                        run_occurrences[(run_length & 0b0000_0111)]+=1;
-                        if run_length <8
-                        {
-                            break;
-                        }
-                        run_length = run_length >> 3;
-                        
-                    }
-                }
-
-                run_length = 0;
-                offset_step=1+3*image_header.width;
-                //split to see if exists
-                //TODO handle edge cases
-
-                horse_run_loop_position=position+offset_step*channels;
-                
-                while horse_run_loop_position<image_size&&
-                    input_bytes[horse_run_loop_position]==input_bytes[position]&&!color_states[horse_run_loop_position]&&
-                    input_bytes[horse_run_loop_position+1]==input_bytes[position+1]&&!color_states[horse_run_loop_position+1]&&
-                    input_bytes[horse_run_loop_position+2]==input_bytes[position+2]&&!color_states[horse_run_loop_position+2]
-                {
-                    run_length+=1;
-                    color_states[horse_run_loop_position]=true;
-                    color_states[horse_run_loop_position+1]=true;
-                    color_states[horse_run_loop_position+2]=true;
-                    horse_run_loop_position+=offset_step*channels;
-                }
-                if run_length > 0
-                {
-
-                    //run_count_red+=red_run_length;
-                    red_pixel_run_amount+=run_length;
-                    run_length = run_length - 1;
-                    run_cntr+=1;
-                    loop
-                    {
-                        /*if position<=468360
-                        {
-                            dbg!(position);
-                            dbg!(PREFIX_RUN_HORSE2);
-                        }*/
-                        data.add_symbolu8(PREFIX_RUN_HORSE2, SC_PREFIXES);
-                        data.add_symbolu8((run_length & 0b0000_0111).try_into().unwrap(), SC_RUN_LENGTHS);
-                        run_occurrences[(run_length & 0b0000_0111)]+=1;
-                        if run_length <8
-                        {
-                            break;
-                        }
-                        run_length = run_length >> 3;
-                        
-                    }
-                }
-            }*/
                
                 //TODO repeat prefix and add length to repeat pattern n times
                 //TODO Block at end of run
@@ -860,19 +764,21 @@ pub fn decode<R: io::Read>(
     //0==PREFIX_RGB
     let mut rgb_lookup = SymbolstreamLookup::new(256);
     //1==SC_PREFIXES
-    let mut prefix_lookup = SymbolstreamLookup::new(4);
+    let mut prefix_lookup = SymbolstreamLookup::new(5);
     //2==SC_RUN_LENGTHS
     let mut runlength_lookup = SymbolstreamLookup::new(8);
     //3==SC_LUMA_BASE_DIFF
     let mut luma_base_diff_lookup = SymbolstreamLookup::new(64);
     //4==SC_LUMA_OTHER_DIFF
-    let mut luma_other_diff_lookup = SymbolstreamLookup::new(16);
+    let mut luma_other_diff_lookup = SymbolstreamLookup::new(32);
     //5==SC_LUMA_BACK_REF
     let mut luma_backref_lookup = SymbolstreamLookup::new(13);
     //6==SC_SMALL_DIFF
-    let mut small_diff_lookup = SymbolstreamLookup::new(8);
-    //6==SC_SMALL_DIFF
-    //let mut adj_block_lookup = SymbolstreamLookup::new(79);
+    let mut small_diff_lookup = SymbolstreamLookup::new(7);
+    //7==SC_LUMA_BASE_DIFF2
+    let mut luma_base_diff2_lookup = SymbolstreamLookup::new(64);
+    //8==SC_LUMA_OTHER_DIFF2
+    let mut luma_other_diff2_lookup = SymbolstreamLookup::new(32);
     
     decoder.read_header_into_tree(&mut rgb_lookup).unwrap();
     decoder.read_header_into_tree(&mut prefix_lookup).unwrap();
@@ -881,6 +787,8 @@ pub fn decode<R: io::Read>(
     decoder.read_header_into_tree(&mut luma_other_diff_lookup).unwrap();
     decoder.read_header_into_tree(&mut luma_backref_lookup).unwrap();
     decoder.read_header_into_tree(&mut small_diff_lookup).unwrap();
+    decoder.read_header_into_tree(&mut luma_base_diff2_lookup).unwrap();
+    decoder.read_header_into_tree(&mut luma_other_diff2_lookup).unwrap();
     //decoder.read_header_into_tree(&mut adj_block_lookup).unwrap();
 
     let rel_ref_lookup:[usize;13]=[channels,channels*image.width,channels*(1+image.width),2*channels,2*channels*image.width,channels*(2*image.width+1),channels*(image.width+2),channels*2*(image.width+1),3*channels,3*channels*image.width,
@@ -926,21 +834,26 @@ pub fn decode<R: io::Read>(
                 {
                     match prefix1
                     {
+                        
+                        PREFIX_COLOR_LUMA2=>
+                        {
+                            let prev_luma_base_diff=decoder.read_next_symbol(&luma_base_diff2_lookup)?.wrapping_sub(32);
+
+                            output_vec[position+1]=prev_luma_base_diff .wrapping_add(((output_vec[prev_pos+1] as u16 + output_vec[position-channels*image.width+1] as u16)/2) as u8);
+
+                            output_vec[position]=decoder.read_next_symbol(&luma_other_diff2_lookup)?.wrapping_sub(16).wrapping_add(prev_luma_base_diff.wrapping_add(((output_vec[prev_pos] as u16 + output_vec[position-channels*image.width] as u16)/2) as u8));
+
+                            output_vec[position+2]=decoder.read_next_symbol(&luma_other_diff2_lookup)?.wrapping_sub(16).wrapping_add(prev_luma_base_diff.wrapping_add(((output_vec[prev_pos+2] as u16 + output_vec[position-channels*image.width+2] as u16)/2) as u8));
+                        }
                         PREFIX_SMALL_DIFF=>
                         {
-                            if position>=channels*image.width
-                            {
-                                output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4+(output_vec[position-channels*image.width] as i16+output_vec[prev_pos] as i16)/2) as u8;
-                                output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4+(output_vec[position+1-channels*image.width] as i16+output_vec[prev_pos+1] as i16)/2) as u8;
-                                output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4+(output_vec[position+2-channels*image.width] as i16+output_vec[prev_pos+2] as i16)/2) as u8;
-
-                            }
-                            else
-                            {
-                                output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos] as i16)as u8;
-                                output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+1] as i16)as u8;
-                                output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-4 +output_vec[prev_pos+2] as i16)as u8;
-                            }
+                            //TODO improve preformance?
+                            
+                    let v_pos;
+                    if position>=channels*image.width{v_pos=position-channels*image.width}else{v_pos=prev_pos};
+                                output_vec[position]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-3 +(output_vec[v_pos] as i16+output_vec[prev_pos] as i16)/2)as u8;
+                                output_vec[position+1]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-3 +(output_vec[v_pos+1] as i16+output_vec[prev_pos+1] as i16)/2)as u8;
+                                output_vec[position+2]=(decoder.read_next_symbol(&small_diff_lookup)? as i16-3 +(output_vec[v_pos+2] as i16+output_vec[prev_pos+2] as i16)/2)as u8;
 
                         }
                         PREFIX_COLOR_LUMA=>
@@ -950,11 +863,9 @@ pub fn decode<R: io::Read>(
 
                             output_vec[position+1]=prev_luma_base_diff .wrapping_add(output_vec[position-backref+1]);
 
-                            let prev_luma_other_diff1=decoder.read_next_symbol(&luma_other_diff_lookup)?.wrapping_sub(8);
-                            output_vec[position]=prev_luma_other_diff1.wrapping_add(prev_luma_base_diff.wrapping_add(output_vec[position-backref]));
+                            output_vec[position]=decoder.read_next_symbol(&luma_other_diff_lookup)?.wrapping_sub(16).wrapping_add(prev_luma_base_diff.wrapping_add(output_vec[position-backref]));
 
-                            let prev_luma_other_diff2=decoder.read_next_symbol(&luma_other_diff_lookup)?.wrapping_sub(8);
-                            output_vec[position+2]=prev_luma_other_diff2.wrapping_add(prev_luma_base_diff.wrapping_add(output_vec[position-backref+2]));
+                            output_vec[position+2]=decoder.read_next_symbol(&luma_other_diff_lookup)?.wrapping_sub(16).wrapping_add(prev_luma_base_diff.wrapping_add(output_vec[position-backref+2]));
                         }
                         /*PREFIX_BACK_REF=>
                         {
@@ -963,22 +874,14 @@ pub fn decode<R: io::Read>(
                                 output_vec[position+1]=output_vec[prev_pos+1];
 
                                 output_vec[position+2]=output_vec[prev_pos+2];
-
-                            #[cfg(debug_assertions)]
-                            {
-                                debug_assert!(dump[position]==output_vec[position],"expected: {}, output: {} at position {}",dump[position],output_vec[position],position);
-                                debug_assert!(dump[position+1]==output_vec[position+1],"expected: {}, output: {} at position {}",dump[position+1],output_vec[position+1],position+1);
-                                debug_assert!(dump[position+2]==output_vec[position+2],"expected: {}, output: {} at position {}",dump[position+2],output_vec[position+2],position+2);
-                            }
-                            prev_pos=position;
-                            position+=3;
-                            prefix1 = decoder.read_next_symbol(&prefix_lookup)?;
                         }*/
                         PREFIX_RGB=>
                         {
-                                output_vec[position]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[if position>=channels*image.width{position-channels*image.width}else{prev_pos}] as i16+output_vec[prev_pos] as i16)/2)) as u8;
-                                output_vec[position+1]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[if position>=channels*image.width{position-channels*image.width}else{prev_pos}+1] as i16+output_vec[prev_pos+1] as i16)/2)) as u8;
-                                output_vec[position+2]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[if position>=channels*image.width{position-channels*image.width}else{prev_pos}+2] as i16+output_vec[prev_pos+2] as i16)/2)) as u8;
+                            let v_pos;
+                            if position>=channels*image.width{v_pos=position-channels*image.width}else{v_pos=prev_pos};
+                                output_vec[position]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[v_pos] as i16+output_vec[prev_pos] as i16)/2)) as u8;
+                                output_vec[position+1]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[v_pos+1] as i16+output_vec[prev_pos+1] as i16)/2)) as u8;
+                                output_vec[position+2]=((decoder.read_next_symbol(&rgb_lookup)? as i16).wrapping_add((output_vec[v_pos+2] as i16+output_vec[prev_pos+2] as i16)/2)) as u8;
                         }
                         
                         _=>
