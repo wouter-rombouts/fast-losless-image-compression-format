@@ -1,5 +1,9 @@
 #[derive(Copy,Clone)]
-pub enum ColorState {
-    Initial,
-    Encoded
+#[derive(PartialEq)]
+pub enum Prefixes {
+    PrefixRun,
+    PrefixColorLuma2,
+    PrefixSmallDiff,
+    PrefixColorLuma,
+    PrefixRgb
 }
