@@ -11,14 +11,14 @@ use std::rc::Rc;
 }*/
 pub struct EncodedOutput
 { pub symbol_occurs : Vec<Vec<usize>>,
-  pub data_vec : Vec<(u8, u8)>
+  pub data_vec : Vec<(u16, u8)>
 }
 impl EncodedOutput
 {
     pub fn new( data_size_estimate : usize)
     -> EncodedOutput
     {
-        EncodedOutput{ symbol_occurs: Vec::new(), data_vec: Vec::<(u8, u8)>::with_capacity(data_size_estimate) }
+        EncodedOutput{ symbol_occurs: Vec::new(), data_vec: Vec::<(u16, u8)>::with_capacity(data_size_estimate) }
     }
 
     pub fn end( &mut self)
@@ -28,13 +28,19 @@ impl EncodedOutput
 
     pub fn add_symbolu8( &mut self, symbol : u8, output_type : u8 )
     {
+        self.data_vec.push((symbol as u16,output_type));
+        self.symbol_occurs[output_type as usize][symbol as usize]+=1;
+    }    
+    
+    pub fn add_symbolu16( &mut self, symbol : u16, output_type : u8 )
+    {
         self.data_vec.push((symbol,output_type));
         self.symbol_occurs[output_type as usize][symbol as usize]+=1;
     }
 
     pub fn add_symbolusize( &mut self, symbol : usize, output_type : u8 )
     {
-        self.data_vec.push((symbol as u8,output_type));
+        self.data_vec.push((symbol as u16,output_type));
         self.symbol_occurs[output_type as usize][symbol]+=1;
     }
 
@@ -60,7 +66,7 @@ impl EncodedOutput
             for i in 0..self.symbol_occurs[occurs_i].len()
             {
                 flat_tree.push(TreeNode{ occurrences_sum : self.symbol_occurs[occurs_i][i],
-                                        symbols_under_node : vec![i as u8]});
+                                        symbols_under_node : vec![i as u16]});
             }
 
             while flat_tree.len() > 2
@@ -119,20 +125,14 @@ pub struct Bcode
     pub code : usize
 
 }
-#[derive(PartialEq,PartialOrd,Eq,Ord,Debug)]
-pub struct LookupItem
-{
-    code : usize,
-    symbol : u8,
-    aob : u8
-}
+
 #[derive(Clone)]
 pub struct SymbolstreamLookup
 {
     //does this need to be saved?
-    max_aob : u8,
+    pub max_aob : u8,
     //size is 2^max_aob
-    symbol_lookup : Vec<SymbolLookupItem>,
+    pub symbol_lookup : Vec<SymbolLookupItem>,
     //index is value from symbol_lookup
     aob_lookup : Vec<SymbolLookupItem>
 }
@@ -149,8 +149,8 @@ impl SymbolstreamLookup
 #[derive(Clone,Copy)]
 pub struct SymbolLookupItem
 {
-    symbol : u8,
-    aob : u8   
+    pub symbol : u16,
+    pub aob : u8   
 }
 
 pub struct DecodeInput<'a,R:Read>
@@ -182,7 +182,7 @@ impl<R:Read> DecodeInput<'_,R>
             for i in 0..amount_of_symbols
             {
                 bcodes[i].aob=self.bitreader.read_bitsu8(max_aob_bits)?;
-                aob_vec.aob_lookup.push(SymbolLookupItem{ symbol: i as u8, aob: bcodes[i].aob });
+                aob_vec.aob_lookup.push(SymbolLookupItem{ symbol: i as u16, aob: bcodes[i].aob });
             }
             
             //bitshift codes
@@ -202,8 +202,9 @@ impl<R:Read> DecodeInput<'_,R>
             }
         Ok(())
     }
+    
     pub fn read_next_symbol( &mut self, lookup : &SymbolstreamLookup )
-    -> Result<u8, io::Error>
+    -> Result<u16, io::Error>
     {
         match self.bitreader.read_24bits_noclear(lookup.max_aob)
         {
@@ -215,7 +216,7 @@ impl<R:Read> DecodeInput<'_,R>
             },
             Err(e)=>
             {
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -225,7 +226,7 @@ pub struct TreeNode
 {
     pub occurrences_sum : usize,
     //if list empty then leaf nodes
-    pub symbols_under_node : Vec<u8>
+    pub symbols_under_node : Vec<u16>
 }
 
 impl PartialEq for TreeNode
@@ -336,7 +337,7 @@ mod tests {
             for _j in 0..i*10
             {
                 let res =decoder.read_next_symbol(&symbol_lookup);
-                debug_assert_eq!(res.unwrap(),(i) as u8,"i:{}",i);
+                debug_assert_eq!(res.unwrap(),(i) as u16,"i:{}",i);
             }
         }
         println!("decoder speed: {}", now.elapsed().as_millis());
