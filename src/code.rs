@@ -17,24 +17,32 @@ pub(crate) const PREFIX_RGB: u8 = 1;
 pub(crate) const PREFIX_COLOR_LUMA: u8 = 2;
 pub(crate) const PREFIX_SMALL_DIFF: u8 = 3;
 pub(crate) const PREFIX_COLOR_LUMA2: u8 = 4;
-pub(crate) const PREFIX_BACK_REF: u8 = 5;
+pub(crate) const PREFIX_BACK_REF: u8 = 0;
+pub(crate) const PREFIX_RUN_1: u8 = 5;
+pub(crate) const PREFIX_RUN_2: u8 = 6;
+pub(crate) const PREFIX_RUN_3: u8 = 7;
+pub(crate) const PREFIX_RUN_4: u8 = 8;
+pub(crate) const PREFIX_RUN_5: u8 = 9;
+pub(crate) const PREFIX_RUN_6: u8 = 10;
+pub(crate) const PREFIX_RUN_7: u8 = 11;
+pub(crate) const PREFIX_RUN_8: u8 = 12;
 //pub(crate) const PREFIX_PREDICT: u8 = 5;
 //pub(crate) const PREFIX_REF: u8 = 6;
 //stream codes
 pub(crate) const SC_RGB: u8 = 0;
 pub(crate) const SC_PREFIXES: u8 = 1;
-pub(crate) const SC_RUN_LENGTHS: u8 = 2;
-pub(crate) const SC_LUMA_BASE_DIFF: u8 = 3;
-pub(crate) const SC_LUMA_OTHER_DIFF: u8 = 4;
-pub(crate) const SC_LUMA_BACK_REF: u8 = 5;
-pub(crate) const SC_SMALL_DIFF1: u8 = 6;
+//pub(crate) const SC_RUN_LENGTHS: u8 = 2;
+pub(crate) const SC_LUMA_BASE_DIFF: u8 = 2;
+pub(crate) const SC_LUMA_OTHER_DIFF: u8 = 3;
+pub(crate) const SC_LUMA_BACK_REF: u8 = 4;
+pub(crate) const SC_SMALL_DIFF1: u8 = 5;
 //pub(crate) const SC_BLOCK_DIFF: u8 = 7;
-pub(crate) const SC_LUMA_BASE_DIFF2: u8 = 7;
-pub(crate) const SC_LUMA_OTHER_DIFF2: u8 = 8;
+pub(crate) const SC_LUMA_BASE_DIFF2: u8 = 6;
+pub(crate) const SC_LUMA_OTHER_DIFF2: u8 = 7;
 //pub(crate) const SC_SMALL_DIFF2: u8 = 9;
 //pub(crate) const SC_SMALL_DIFF3: u8 = 10;
-pub(crate) const SC_LUMA_OTHER_DIFFB2: u8 = 9;
-pub(crate) const SC_BACK_REF: u8 = 10;
+pub(crate) const SC_LUMA_OTHER_DIFFB2: u8 = 8;
+pub(crate) const SC_BACK_REF: u8 = 9;
 //pub(crate) const SC_LUMA_BACK_REF2: u8 = 9;
 
 
@@ -82,9 +90,9 @@ pub fn encode<W: io::Write>(
     //0==PREFIX_RGB
     data.add_output_type(256);
     //1==SC_PREFIXES
-    data.add_output_type(6);
+    data.add_output_type(13);
     //2==SC_RUN_LENGTHS
-    data.add_output_type(8);
+    //data.add_output_type(8);
     //3==SC_LUMA_BASE_DIFF
     data.add_output_type(64);
     //4==SC_LUMA_OTHER_DIFF
@@ -399,10 +407,10 @@ pub fn encode<W: io::Write>(
                     color_states[position+channels+2]=true;*/
                     loop
                     {
-                        data.add_symbolu8(PREFIX_RUN, SC_PREFIXES);
+                        data.add_symbolusize((run_length & 0b0000_0111)+5, SC_PREFIXES);
                         run_cntr+=1;
-                        data.add_symbolusize(run_length & 0b0000_0111, SC_RUN_LENGTHS);
-                        run_occurrences[(run_length & 0b0000_0111)]+=1;
+                        //data.add_symbolusize(run_length & 0b0000_0111, SC_RUN_LENGTHS);
+                        //run_occurrences[(run_length & 0b0000_0111)]+=1;
                         if run_length <8
                         {
                             break;
@@ -508,9 +516,9 @@ pub fn decode<R: io::Read>(
     //0==PREFIX_RGB
     let mut rgb_lookup = SymbolstreamLookup::new(256);
     //1==SC_PREFIXES
-    let mut prefix_lookup = SymbolstreamLookup::new(6);
+    let mut prefix_lookup = SymbolstreamLookup::new(13);
     //2==SC_RUN_LENGTHS
-    let mut runlength_lookup = SymbolstreamLookup::new(8);
+    //let mut runlength_lookup = SymbolstreamLookup::new(8);
     //3==SC_LUMA_BASE_DIFF
     let mut luma_base_diff_lookup = SymbolstreamLookup::new(64);
     //4==SC_LUMA_OTHER_DIFF
@@ -534,7 +542,7 @@ pub fn decode<R: io::Read>(
     
     decoder.read_header_into_tree(&mut rgb_lookup).unwrap();
     decoder.read_header_into_tree(&mut prefix_lookup).unwrap();
-    decoder.read_header_into_tree(&mut runlength_lookup).unwrap();
+    //decoder.read_header_into_tree(&mut runlength_lookup).unwrap();
     decoder.read_header_into_tree(&mut luma_base_diff_lookup).unwrap();
     decoder.read_header_into_tree(&mut luma_other_diff_lookup).unwrap();
     decoder.read_header_into_tree(&mut luma_backref_lookup).unwrap();
@@ -565,7 +573,7 @@ pub fn decode<R: io::Read>(
     
     
     let mut prev_pos=0;
-
+    let run_prefixes=[PREFIX_RUN_1,PREFIX_RUN_2,PREFIX_RUN_3,PREFIX_RUN_4,PREFIX_RUN_5,PREFIX_RUN_6,PREFIX_RUN_7,PREFIX_RUN_8];
     //#[cfg(debug_assertions)]
     //let mut loopindex=0;
 
@@ -659,16 +667,15 @@ pub fn decode<R: io::Read>(
                     prev_pos=position;
                     position+=3;
                     prefix1 = decoder.read_next_symbol(&prefix_lookup)? as u8;
-
-                    if prefix1==PREFIX_RUN
+                    if run_prefixes.iter().any(|&x| x == prefix1)
                     {
                         //TODO redrun
                         let mut temp_curr_runcount: u8=0;
-                        let mut red_run_length=0;
-                        while prefix1 == PREFIX_RUN
+                        let mut red_run_length:usize=0;
+                        while let Some(&prefix_result)=run_prefixes.iter().find(|&&x| x == prefix1)
                         {
                             //run lengths
-                            red_run_length+=(decoder.read_next_symbol(&runlength_lookup)? as usize) << temp_curr_runcount;
+                            red_run_length+=prefix_result as usize-5 << temp_curr_runcount;
                             temp_curr_runcount += 3;
                             prefix1 = decoder.read_next_symbol(&prefix_lookup)? as u8;
                         }
