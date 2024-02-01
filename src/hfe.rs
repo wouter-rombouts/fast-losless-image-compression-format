@@ -2,6 +2,7 @@
 use std::{collections::BinaryHeap};
 use std::io::{self, Write, Read};
 use crate::bitreader::Bitreader;
+use crate::bits_from_slice;
 use crate::bitwriter::Bitwriter;
 use std::rc::Rc;
 
@@ -10,15 +11,15 @@ use std::rc::Rc;
     list_of_occurs : Box<[usize]>
 }*/
 pub struct EncodedOutput
-{ pub symbol_occurs : Vec<Vec<usize>>,
-  pub data_vec : Vec<(u16, u8)>
+{ pub symbol_occurs : Vec<usize>,
+  pub data_vec : Vec<u16>
 }
 impl EncodedOutput
 {
-    pub fn new( data_size_estimate : usize)
+    pub fn new( amount_of_symbols : usize, data_size_estimate : usize)
     -> EncodedOutput
     {
-        EncodedOutput{ symbol_occurs: Vec::new(), data_vec: Vec::<(u16, u8)>::with_capacity(data_size_estimate) }
+        EncodedOutput{ symbol_occurs: vec![0;amount_of_symbols], data_vec: Vec::<u16>::with_capacity(data_size_estimate) }
     }
 
     pub fn end( &mut self)
@@ -26,46 +27,46 @@ impl EncodedOutput
         //TODO write cache to data_vec before output?
     }
 
-    pub fn add_symbolu8( &mut self, symbol : u8, output_type : u8 )
+    pub fn add_symbolu8( &mut self, symbol : u8 )
     {
-        self.data_vec.push((symbol as u16,output_type));
-        self.symbol_occurs[output_type as usize][symbol as usize]+=1;
+        self.data_vec.push(symbol as u16);
+        self.symbol_occurs[symbol as usize]+=1;
     }    
     
-    pub fn add_symbolu16( &mut self, symbol : u16, output_type : u8 )
+    pub fn add_symbolu16( &mut self, symbol : u16 )
     {
-        self.data_vec.push((symbol,output_type));
-        self.symbol_occurs[output_type as usize][symbol as usize]+=1;
+        self.data_vec.push(symbol);
+        self.symbol_occurs[symbol as usize]+=1;
     }
 
-    pub fn add_symbolusize( &mut self, symbol : usize, output_type : u8 )
+    
+    pub fn add_symbolusize( &mut self, symbol : usize )
     {
-        self.data_vec.push((symbol as u16,output_type));
-        self.symbol_occurs[output_type as usize][symbol]+=1;
+        self.data_vec.push(symbol as u16);
+        self.symbol_occurs[symbol]+=1;
     }
 
-    pub fn add_output_type( &mut self, size : usize)
+    /*pub fn add_output_type( &mut self, size : usize)
     {
         self.symbol_occurs.push(vec![0;size]);
-    }
+    }*/
     pub fn to_encoded_output<'a,W:Write>( &mut self, bitwriter : &mut Bitwriter<'a, W> )
 
     -> Result<(), io::Error>
     {
 
         //TODO create a lookup table with codes for each output type
-        let mut list_of_bcodes : Vec<Vec<Bcode>> = Vec::new();
-        for occurs_i  in 0..self.symbol_occurs.len()
-        {
+        //let mut list_of_bcodes : Vec<Vec<Bcode>> = Vec::new();
+
             //calculate amount of bits for each color value, based on (flattened) huffman tree.
             //initialize 1 so no joining the last level which contains a lot of values in the symbols_under_node
-            let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 1, code: 0 };self.symbol_occurs[occurs_i].len()];
+            let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 1, code: 0 };self.symbol_occurs.len()];
             let mut flat_tree = BinaryHeap::<TreeNode>::new();
 
 
-            for i in 0..self.symbol_occurs[occurs_i].len()
+            for i in 0..self.symbol_occurs.len()
             {
-                flat_tree.push(TreeNode{ occurrences_sum : self.symbol_occurs[occurs_i][i],
+                flat_tree.push(TreeNode{ occurrences_sum : self.symbol_occurs[i],
                                         symbols_under_node : vec![i as u16]});
             }
 
@@ -101,15 +102,17 @@ impl EncodedOutput
             {
                 bitwriter.write_8bits(max_aob.next_power_of_two().count_zeros() as u8, el.aob)?;
             }
-            list_of_bcodes.push(bcodes);
+            //list_of_bcodes.push(bcodes);
 
-        }
         //decodingstream should know how many output types there are
 
-
+        //TODO improve final output see png blog
+        //TODO Huffman lookup table for double symbol(max), then overwrite if only 1 symbol.
+        //enums possible?
         for el in &mut *self.data_vec
         {
-            bitwriter.write_24bits(list_of_bcodes[el.1 as usize][el.0 as usize].aob, list_of_bcodes[el.1 as usize][el.0 as usize].code as u32)?;
+            let el_bcode=bcodes[*el as usize];
+            bitwriter.write_24bits(el_bcode.aob, el_bcode.code as u32)?;
         }
         //TODO move to code.rs at the very end
         bitwriter.writer.write_all(&[(bitwriter.cache>>24).try_into().unwrap()])?;
@@ -152,43 +155,68 @@ pub struct SymbolLookupItem
     pub symbol : u16,
     pub aob : u8   
 }
-
-pub struct DecodeInput<'a,R:Read>
+#[derive(Clone,Copy)]
+pub struct SymbolLookupItemUsize
 {
-    pub bitreader : Bitreader<'a,R>,
+    pub symbol : usize,
+    pub aob : u8   
+}
+pub struct SymbolstreamLookupUsize
+{
+    //does this need to be saved?
+    pub max_aob : u8,
+    //size is 2^max_aob
+    pub symbol_lookup : Vec<SymbolLookupItemUsize>,
+    //index is value from symbol_lookup
+    aob_lookup : Vec<SymbolLookupItemUsize>
+}
+impl SymbolstreamLookupUsize
+{
+    pub fn new( size : usize )
+    ->SymbolstreamLookupUsize
+    {
+        SymbolstreamLookupUsize{max_aob:0, symbol_lookup : Vec::new(),aob_lookup:Vec::<SymbolLookupItemUsize>::with_capacity(size)}
+    }
+}
+pub struct DecodeInput<'a>
+{
+    pub input_data : &'a [u8],
+    //lookup : SymbolstreamLookupUsize
     //max_aob : u8
 }
 
-impl<R:Read> DecodeInput<'_,R>
+impl DecodeInput<'_>
 {
 
 
 
-    pub fn new( bitreader : Bitreader<'_,R> )
-    -> DecodeInput<'_,R>
+    pub fn new( data : & [u8] )
+    -> DecodeInput
     {
-        DecodeInput{ bitreader}
+        DecodeInput{ input_data:data}
     }
 
-    pub fn read_header_into_tree( &mut self, aob_vec : &mut SymbolstreamLookup )
+    /*pub fn read_header_into_tree_and_output_usize( &mut self, size : usize )
     -> Result<(), io::Error>
     {
+            let mut aob_vec=SymbolstreamLookupUsize::new(size);
+            let mut bitreader = Bitreader::new(&mut &Rc::get_mut(&mut self.input_data).unwrap()[..]);
             let amount_of_symbols=aob_vec.aob_lookup.capacity();
-            aob_vec.max_aob=self.bitreader.read_bitsu8(5)?;
+            aob_vec.max_aob=bitreader.read_bitsu8(5)?;
             let max_aob_bits = aob_vec.max_aob.next_power_of_two().count_zeros() as u8;
 
             let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 0, code: 0 };amount_of_symbols];
             aob_vec.aob_lookup=Vec::with_capacity(amount_of_symbols);
             for i in 0..amount_of_symbols
             {
-                bcodes[i].aob=self.bitreader.read_bitsu8(max_aob_bits)?;
-                aob_vec.aob_lookup.push(SymbolLookupItem{ symbol: i as u16, aob: bcodes[i].aob });
+                bcodes[i].aob=bitreader.read_bitsu8(max_aob_bits)?;
+                aob_vec.aob_lookup.push(SymbolLookupItemUsize{ symbol: i as usize, aob: bcodes[i].aob });
             }
             
             //bitshift codes
             //add symbols and order by smallest aob,largest code value
             amount_of_bits_to_bcodes(&mut bcodes);
-            aob_vec.symbol_lookup=vec![SymbolLookupItem{ symbol: 0, aob: 0 };(1<<aob_vec.max_aob as usize)];
+            aob_vec.symbol_lookup=vec![SymbolLookupItemUsize{ symbol: 0, aob: 0 };(1<<aob_vec.max_aob as usize)];
 
             for (i,code_symbol) in bcodes.iter().enumerate()
             {
@@ -201,9 +229,81 @@ impl<R:Read> DecodeInput<'_,R>
                 }
             }
         Ok(())
+    }*/
+
+    pub fn read_header_into_tree( &mut self, size : usize )
+    -> Result<Vec<u16>, io::Error>
+    {
+        let mut output : Vec<u16>=Vec::with_capacity(self.input_data.len());
+        let mut aob_vec=SymbolstreamLookup::new(size);
+        let mut input = bits_from_slice::Bitfromslice::new(self.input_data);
+        //let mut binding = &Rc::get_mut(&mut self.input_data).unwrap()[..];
+        //let mut bitreader = Bitreader::new(&mut binding);
+        let amount_of_symbols=aob_vec.aob_lookup.capacity();
+        aob_vec.max_aob=input.read_bitsu8(5);
+        let max_aob_bits = aob_vec.max_aob.next_power_of_two().count_zeros() as u8;
+
+        let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 0, code: 0 };amount_of_symbols];
+        aob_vec.aob_lookup=Vec::with_capacity(amount_of_symbols);
+        for i in 0..amount_of_symbols
+        {
+            bcodes[i].aob=input.read_bitsu8(max_aob_bits);
+            aob_vec.aob_lookup.push(SymbolLookupItem{ symbol: i as u16, aob: bcodes[i].aob });
+        }
+        
+        //bitshift codes
+        //add symbols and order by smallest aob,largest code value
+        amount_of_bits_to_bcodes(&mut bcodes);
+        aob_vec.symbol_lookup=vec![SymbolLookupItem{ symbol: 0, aob: 0 };(1<<aob_vec.max_aob as usize)];
+
+        for (i,code_symbol) in bcodes.iter().enumerate()
+        {
+            let code_shifted=code_symbol.code<<(aob_vec.max_aob-code_symbol.aob);
+            let code_shifted_plus1=(code_symbol.code+1)<<(aob_vec.max_aob-code_symbol.aob);
+            for sl_index in code_shifted..code_shifted_plus1
+            {
+                
+                aob_vec.symbol_lookup[sl_index]=aob_vec.aob_lookup[i];
+            }
+        }
+        //TODO read symbols into output
+
+        while input.slice_offset<input.my_slice.len()
+        {
+            
+        
+                    let lookup = aob_vec.symbol_lookup[input.read_24bits_noclear(aob_vec.max_aob)];
+                    input.bit_offset+=lookup.aob;
+                    output.push(lookup.symbol);
+        }
+        //TODO clear and output cache
+        while input.bit_offset<32
+        {
+            let lookup = aob_vec.symbol_lookup[((input.cache<<input.bit_offset)>>(32-aob_vec.max_aob))as usize];
+            input.bit_offset+=lookup.aob;
+            output.push(lookup.symbol);
+        }
+        //input.cache
+        Ok(output)
     }
-    
-    pub fn read_next_symbol( &mut self, lookup : &SymbolstreamLookup )
+    /*pub fn read_next_symbol_usize( &mut self, lookup : &SymbolstreamLookupUsize )
+    -> Result<usize, io::Error>
+    {
+        match self.bitreader.read_24bits_noclear(lookup.max_aob)
+        {
+            Ok(newcode)=>
+            {
+                let lookup = lookup.symbol_lookup[newcode];
+                self.bitreader.bit_offset+=lookup.aob;
+                Ok(lookup.symbol)
+            },
+            Err(e)=>
+            {
+                Err(e)
+            }
+        }
+    }*/
+    /*pub fn read_next_symbol( &mut self, lookup : &SymbolstreamLookup )
     -> Result<u16, io::Error>
     {
         match self.bitreader.read_24bits_noclear(lookup.max_aob)
@@ -219,7 +319,7 @@ impl<R:Read> DecodeInput<'_,R>
                 Err(e)
             }
         }
-    }
+    }*/
 }
 #[derive(Eq)]
 pub struct TreeNode
@@ -302,45 +402,46 @@ mod tests {
     {
         //initialize
         const SIZE_ARR:usize=256;
-        //let occurrences=Box::new([0usize;SIZE_ARR]);
         
         let mut output_vec : Vec<u8> = Vec::new();
-        let mut encoder = super::EncodedOutput::new(SIZE_ARR*1000);
-        encoder.add_output_type(SIZE_ARR);
+        let mut encoder = super::EncodedOutput::new(256,SIZE_ARR*1000);
+        //encoder.add_output_type(SIZE_ARR);
         //add data
         let now = std::time::Instant::now();
         for i in 0..SIZE_ARR
         {
             for _j in 0..i*10
             {
-                encoder.add_symbolusize(i,0);
+                encoder.add_symbolusize(i);
             }
         }
         //encode
         let mut mywriter=crate::bitwriter::Bitwriter::new(&mut output_vec);
         encoder.to_encoded_output(&mut mywriter).unwrap();
-        let cache=mywriter.cache.to_be_bytes();
-        output_vec.extend_from_slice(&cache[..]);
+        //let cache=mywriter.cache.to_be_bytes();
+        //output_vec.extend_from_slice(&cache[..]);
         println!("encoder speed: {}", now.elapsed().as_millis());
         //read
         dbg!(output_vec.len());
-        let mut binding = output_vec.as_slice();
-        let mut decoder = super::DecodeInput::new(  crate::bitreader::Bitreader::new( &mut binding ));
+        //let mut binding = output_vec.as_slice();
+        let mut decoder = super::DecodeInput::new(  &output_vec );
         
         let now = std::time::Instant::now();
-        let mut symbol_lookup = crate::hfe::SymbolstreamLookup::new(SIZE_ARR);
-        decoder.read_header_into_tree(&mut symbol_lookup).unwrap();
+        //let mut symbol_lookup = crate::hfe::SymbolstreamLookup::new(SIZE_ARR);
+        let output = decoder.read_header_into_tree(SIZE_ARR).unwrap();
         //dbg!(decoder.symbols_lookup);
         //TODO: opti decoder speed
+        println!("decoder speed: {}", now.elapsed().as_millis());
+        let mut amount_processed=0;
         for i in 0usize..SIZE_ARR
         {
-            for _j in 0..i*10
+            for j in 0..i*10
             {
-                let res =decoder.read_next_symbol(&symbol_lookup);
-                debug_assert_eq!(res.unwrap(),(i) as u16,"i:{}",i);
+                //let res =decoder.read_next_symbol(&symbol_lookup);
+                debug_assert_eq!(output[amount_processed],(i) as u16,"i:{},j:{}",i,j);
+                amount_processed+=1;
             }
         }
-        println!("decoder speed: {}", now.elapsed().as_millis());
         
         //TODO put back leftover bits
         
