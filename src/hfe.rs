@@ -61,11 +61,15 @@ impl EncodedOutput
             //calculate amount of bits for each color value, based on (flattened) huffman tree.
             //initialize 1 so no joining the last level which contains a lot of values in the symbols_under_node
             let mut bcodes : Vec<Bcode>=vec![Bcode{ aob: 1, code: 0 };self.symbol_occurs.len()];
+                        /*for &el in bcodes.iter(){
+                println!("aob:{},code:{}",el.aob,el.code);
+            }*/
             let mut flat_tree = BinaryHeap::<TreeNode>::new();
 
 
             for i in 0..self.symbol_occurs.len()
             {
+                //println!("occurrences_sum:{},symbols_under_node:{}",self.symbol_occurs[i],i);
                 flat_tree.push(TreeNode{ occurrences_sum : self.symbol_occurs[i],
                                         symbols_under_node : vec![i as u16]});
             }
@@ -74,18 +78,37 @@ impl EncodedOutput
             {
                 let first = flat_tree.pop().unwrap();
                 let second = flat_tree.pop().unwrap();
+                /*let mut test =false;
+                if first.symbols_under_node==[16]
+                {
+                    dbg!(flat_tree.len());
+                    dbg!(&first);
+                    dbg!(&second);
+                    test=true;
+                }*/
                 let treenode=TreeNode{ occurrences_sum : first.occurrences_sum + second.occurrences_sum,
                                     symbols_under_node : [first.symbols_under_node, second.symbols_under_node].concat()};
                 //store codes(=amounts of bits<8) in output,0-255
                 for el in treenode.symbols_under_node.iter()
-                {
+                {                
+                    /*if *el==16
+                    {
+                        dbg!(el);
+                        dbg!(bcodes[*el as usize].aob);
+                    }*/
                     bcodes[*el as usize].aob+=1;
                 }
                 flat_tree.push(treenode);
             }
+
             //build binary tree with color values based on amount of bits, in numerical order( bottom-up)
             //write amount of bits to output
+            
             amount_of_bits_to_bcodes(&mut bcodes);
+            /*for &el in bcodes.iter(){
+                println!("aob:{},code:{}",el.aob,el.code);
+            }*/
+            
             /*#[cfg(debug_assertions)]
             let mut sumtot=0;
             #[cfg(debug_assertions)]
@@ -121,7 +144,7 @@ impl EncodedOutput
 }
 
 
-#[derive(Clone,Ord,Eq,PartialEq,PartialOrd,Copy)]
+#[derive(Clone,Ord,Eq,PartialEq,PartialOrd,Copy,Debug)]
 pub struct Bcode
 {
     pub aob : u8,
@@ -255,9 +278,10 @@ impl DecodeInput<'_>
         //add symbols and order by smallest aob,largest code value
         amount_of_bits_to_bcodes(&mut bcodes);
         aob_vec.symbol_lookup=vec![SymbolLookupItem{ symbol: 0, aob: 0 };(1<<aob_vec.max_aob as usize)];
-
+        //dbg!(aob_vec.max_aob);
         for (i,code_symbol) in bcodes.iter().enumerate()
         {
+            //dbg!(code_symbol);
             let code_shifted=code_symbol.code<<(aob_vec.max_aob-code_symbol.aob);
             let code_shifted_plus1=(code_symbol.code+1)<<(aob_vec.max_aob-code_symbol.aob);
             for sl_index in code_shifted..code_shifted_plus1
@@ -266,7 +290,7 @@ impl DecodeInput<'_>
                 aob_vec.symbol_lookup[sl_index]=aob_vec.aob_lookup[i];
             }
         }
-        //TODO read symbols into output
+        //read symbols into output
 
         while input.slice_offset<input.my_slice.len()
         {
@@ -276,7 +300,7 @@ impl DecodeInput<'_>
                     input.bit_offset+=lookup.aob;
                     output.push(lookup.symbol);
         }
-        //TODO clear and output cache
+        //clear and output cache
         while input.bit_offset<32
         {
             let lookup = aob_vec.symbol_lookup[((input.cache<<input.bit_offset)>>(32-aob_vec.max_aob))as usize];
@@ -322,6 +346,7 @@ impl DecodeInput<'_>
     }*/
 }
 #[derive(Eq)]
+#[derive(Debug)]
 pub struct TreeNode
 {
     pub occurrences_sum : usize,
@@ -332,7 +357,7 @@ pub struct TreeNode
 impl PartialEq for TreeNode
 {
     fn eq(&self, other: &Self) -> bool {
-        self.occurrences_sum == other.occurrences_sum
+        self.occurrences_sum == other.occurrences_sum &&self.symbols_under_node==other.symbols_under_node
     }
 }
 
@@ -346,7 +371,7 @@ impl PartialOrd for TreeNode
 impl Ord for TreeNode
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.occurrences_sum.cmp(&self.occurrences_sum)
+        other.occurrences_sum.cmp(&self.occurrences_sum).then(other.symbols_under_node.len().cmp(&self.symbols_under_node.len()))
     }
 }
 
